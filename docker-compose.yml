@@ -1,0 +1,58 @@
+# One command brings up the whole stack:
+#   docker compose up -d
+#
+# Services:
+#   postgres : structured metadata (fixed columns + JSONB)
+#   chroma   : vector store (semantic search), runs as its own server
+#   app      : our Python pipeline; talks to both over the internal network
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ragpass
+      POSTGRES_DB: ragdb
+    ports:
+      - "5432:5432"            # exposed so you can inspect with psql from host
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # SQL files here run automatically on FIRST init -> creates our table.
+      - ./db/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ragdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  chroma:
+    image: chromadb/chroma:latest
+    ports:
+      - "8000:8000"            # exposed for debugging; app uses internal network
+    volumes:
+      - chromadata:/data
+    # No healthcheck here: the chroma image doesn't ship curl/wget, so a
+    # shell-based check would always report "unhealthy". The app's own
+    # `healthcheck` command verifies reachability instead.
+
+  app:
+    build: ./app
+    ports:
+      - "8001:8001"            # web UI + API: open http://localhost:8001
+    environment:
+      # Service names ("postgres", "chroma") resolve via the compose network.
+      PG_DSN: "host=postgres port=5432 dbname=ragdb user=postgres password=ragpass"
+      CHROMA_HOST: chroma
+      CHROMA_PORT: "8000"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"   # taken from your .env / shell
+    volumes:
+      - ./files:/files          # put images here to ingest them from the container
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chroma:
+        condition: service_started
+
+volumes:
+  pgdata:
+  chromadata:

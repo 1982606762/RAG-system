@@ -1,0 +1,26 @@
+# --- Secrets ---
+# Never commit real keys. Only .env.example is tracked.
+.env
+*.env
+!.env.example
+
+# --- User data / runtime artifacts ---
+# Uploaded files and generated stores must not go into git.
+files/*
+!files/.gitkeep
+chroma_db/
+*.sqlite3
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/
+*.log
