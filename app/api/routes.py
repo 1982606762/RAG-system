@@ -52,11 +52,12 @@ async def upload(file: UploadFile = File(...)):
 
     try:
         result = ingest_file(saved_path)
-    except ValueError as e:
+    except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=422, detail=str(e))
 
     return {
         "file_id": result["file_id"],
+        "duplicate": result.get("duplicate", False),
         "doc": result["doc"],
         "embedding_text": result["embedding_text"],
     }

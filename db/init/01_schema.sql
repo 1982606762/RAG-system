@@ -15,8 +15,14 @@ CREATE TABLE IF NOT EXISTS documents (
     summary       TEXT,
     file_path     TEXT,
     full_analysis JSONB,
+    -- MD5 hex digest of the raw file; NULL = legacy row ingested before dedup.
+    -- UNIQUE so the same file can't be inserted twice.
+    file_hash     VARCHAR(32) UNIQUE,
     created_at    TIMESTAMP DEFAULT now()
 );
+
+-- For existing installs (table already exists), run once manually:
+--   ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_hash VARCHAR(32) UNIQUE;
 
 CREATE INDEX IF NOT EXISTS idx_doc_type ON documents (doc_type);
 CREATE INDEX IF NOT EXISTS idx_doc_date ON documents (doc_date);

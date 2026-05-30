@@ -24,3 +24,8 @@ FILES_DIR = os.getenv("FILES_DIR", "/files")
 # Anthropic. The SDK reads ANTHROPIC_API_KEY automatically; we expose the
 # model name here so it's configurable in one place.
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
+
+# Local embedding model used for ChromaDB vectors.
+# BGE-M3 produces 1024-dim multilingual embeddings optimised for Chinese text.
+# NOTE: switching models requires re-ingesting all files (dimension mismatch).
+EMBED_MODEL = os.getenv("EMBED_MODEL", "BAAI/bge-m3")

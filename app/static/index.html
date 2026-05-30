@@ -85,17 +85,22 @@
                               if (e.dataTransfer.files[0]) send(e.dataTransfer.files[0]); }}>
             {busy ? "正在理解文件…" : "点击或拖拽文件到这里上传（PDF / JPG / PNG）"}
           </div>
-          <input ref={inputRef} type="file" style={{display: "none"}}
+          <input ref={inputRef} type="file" accept="image/*,.pdf" style={{display: "none"}}
                  onChange={e => e.target.files[0] && send(e.target.files[0])} />
           {err && <div className="card" style={{color: "#c33"}}>{err}</div>}
           {result && (
             <div className="card">
-              <div><b>已入库</b> <span className="muted">{result.file_id}</span></div>
-              <p style={{margin: "8px 0"}}>{result.doc.summary}</p>
-              <div>类型：<span className="tag">{result.doc.doc_type}</span>
-                   {result.doc.vendor && <span>商家：{result.doc.vendor}　</span>}
-                   {result.doc.amount && <span>金额：{result.doc.amount} {result.doc.currency}</span>}</div>
-              <div className="muted" style={{marginTop: 10}}>embedding 文本：{result.embedding_text}</div>
+              {result.duplicate
+                ? <div><b>重复文件</b>，已跳过入库 <span className="muted">{result.file_id}</span></div>
+                : <>
+                    <div><b>已入库</b> <span className="muted">{result.file_id}</span></div>
+                    <p style={{margin: "8px 0"}}>{result.doc.summary}</p>
+                    <div>类型：<span className="tag">{result.doc.doc_type}</span>
+                         {result.doc.vendor && <span>商家：{result.doc.vendor}　</span>}
+                         {result.doc.amount && <span>金额：{result.doc.amount} {result.doc.currency}</span>}</div>
+                    <div className="muted" style={{marginTop: 10}}>embedding 文本：{result.embedding_text}</div>
+                  </>
+              }
             </div>
           )}
         </div>
