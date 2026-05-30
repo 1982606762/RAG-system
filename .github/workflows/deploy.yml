@@ -1,12 +1,16 @@
 # Push-to-deploy: every push to `main` SSHes into the VPS, pulls the
 # latest code, and rebuilds the Docker stack.
 #
+# Uses the runner's native OpenSSH client (not a 3rd-party action) so the
+# behavior matches exactly what works from your laptop:
+#   ssh -i key -o IdentitiesOnly=yes user@host
+#
 # Required GitHub repo secrets (Settings -> Secrets and variables -> Actions):
 #   SSH_HOST       server IP or domain
-#   SSH_USER       login user (e.g. ubuntu / root / deploy)
+#   SSH_USER       login user (e.g. root)
 #   SSH_PORT       SSH port (usually 22)
 #   SSH_KEY        the PRIVATE key whose public half is in the server's authorized_keys
-#   DEPLOY_PATH    absolute path of the repo on the server (e.g. /home/ubuntu/rag)
+#   DEPLOY_PATH    absolute path of the repo on the server (e.g. /root/rag)
 
 name: Deploy
 
@@ -20,17 +24,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          port: ${{ secrets.SSH_PORT }}
-          key: ${{ secrets.SSH_KEY }}
-          script: |
-            set -e
-            cd ${{ secrets.DEPLOY_PATH }}
-            git pull --ff-only origin main
-            # Rebuild only the app image and restart; postgres/chroma keep their data.
-            docker compose up -d --build
-            # Drop dangling images so the disk doesn't fill up over time.
-            docker image prune -f
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -e
+          mkdir -p ~/.ssh
+          # Write the private key; printf guarantees a trailing newline.
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # Trust the host key so ssh doesn't prompt.
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          # IdentitiesOnly=yes -> use ONLY this key, exactly like the local test.
+          ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes -p "$SSH_PORT" \
+            "$SSH_USER@$SSH_HOST" \
+            "set -e && cd $DEPLOY_PATH && git pull --ff-only origin main && docker compose up -d --build && docker image prune -f"
