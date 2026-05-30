@@ -10,6 +10,7 @@ files/*
 !files/.gitkeep
 chroma_db/
 *.sqlite3
+CLAUDE.md
 
 # --- Python ---
 __pycache__/

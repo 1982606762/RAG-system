@@ -14,7 +14,9 @@ services:
       POSTGRES_PASSWORD: ragpass
       POSTGRES_DB: ragdb
     ports:
-      - "5432:5432"            # exposed so you can inspect with psql from host
+      # Bind to localhost only: reachable from the server itself or via an SSH
+      # tunnel, but NOT exposed to the public internet.
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       # SQL files here run automatically on FIRST init -> creates our table.
@@ -28,7 +30,9 @@ services:
   chroma:
     image: chromadb/chroma:latest
     ports:
-      - "8000:8000"            # exposed for debugging; app uses internal network
+      # Localhost only — the app reaches chroma over the internal compose
+      # network; no need to expose this port publicly.
+      - "127.0.0.1:8000:8000"
     volumes:
       - chromadata:/data
     # No healthcheck here: the chroma image doesn't ship curl/wget, so a

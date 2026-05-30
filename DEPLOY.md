@@ -218,6 +218,47 @@ git push
 
 ---
 
+## 最终架构总览(两把 key,别搞混)
+
+整套部署涉及**两把方向相反、用途不同的 SSH key**。这是当初 debug 最容易绕晕的地方,记住它就不会再迷路。
+
+**Key A — GitHub Actions 登录 VPS**(方向:GitHub → 服务器)
+
+- 私钥:存在 GitHub 仓库 secret `SSH_KEY` 里。
+- 公钥:加在服务器 `deploy` 用户的 `~/.ssh/authorized_keys`。
+- 作用:让 CI 能 SSH 进服务器下命令。
+
+**Key B — VPS 拉取私有仓库**(方向:服务器 → GitHub)
+
+- 私钥:存在服务器 `/home/deploy/.ssh/` 里。
+- 公钥:注册在 GitHub 仓库的 **Deploy Keys**(只读即可)。
+- 作用:让 deploy 用户能 `git pull` 私有仓库。
+
+**一次部署的完整流程:**
+
+```
+你 push 到 main
+  → GitHub Actions 启动
+  → 用 Key A，SSH 进 VPS 的 deploy 用户
+  → deploy 执行 git pull（用 Key B 从私有仓库拉新代码）
+  → docker compose up -d --build 重建并重启
+  → 完成 ✅
+```
+
+**排查 SSH 认证的黄金法则**:任何一次登录失败,先问"**正确的公钥,在不在我要连的那台机器、那个用户的 `authorized_keys` 里**"。本地"能登录"不等于"这把特定的 key 能登录"——ssh-agent 会拿别的 key 兜底。要隔离验证某一把 key,必须加 `-o IdentitiesOnly=yes`:
+
+```bash
+ssh -i ~/.ssh/某私钥 -o IdentitiesOnly=yes user@host
+```
+
+这条命令的行为才和 GitHub Actions 的干净环境等价。
+
+**网络暴露面**:只有应用端口 `8001` 对公网开放;Postgres `5432`、Chroma `8000` 已绑定到 `127.0.0.1`,只能从服务器本机或 SSH 隧道访问。想从本地连库:
+
+```bash
+ssh -L 5432:localhost:5432 deploy@服务器IP
+```
+
 ## 之后还能加的(可选)
 
 - CI 里先跑测试/lint,通过才部署
