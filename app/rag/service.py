@@ -11,9 +11,9 @@ from rag.process import process_image, build_embedding_text
 from db.storage import insert_document, add_vector, run_sql
 
 
-def ingest_file(path: str) -> dict:
+def ingest_file(path: str, model: str = None) -> dict:
     """Process one file and write it to both stores. Returns a summary dict."""
-    doc = process_image(path)
+    doc = process_image(path, model=model)
     if doc.get("_parse_error"):
         raise ValueError(f"Claude 解析失败：{doc.get('_raw')}")
 

@@ -23,4 +23,9 @@ FILES_DIR = os.getenv("FILES_DIR", "/files")
 
 # Anthropic. The SDK reads ANTHROPIC_API_KEY automatically; we expose the
 # model name here so it's configurable in one place.
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-haiku-4-5")
+
+AVAILABLE_MODELS = {
+    "claude-haiku-4-5": "Haiku 4.5（快速·省钱）",
+    "claude-sonnet-4-6": "Sonnet 4.6（更智能）",
+}

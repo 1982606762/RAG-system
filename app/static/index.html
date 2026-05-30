@@ -39,6 +39,9 @@
     .bubble.bot { background: #fff; border: 1px solid #e5e5e5; }
     .health { font-size: 12px; margin-bottom: 16px; }
     .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+    .model-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; font-size: 13px; }
+    .model-bar select { padding: 5px 10px; border: 1px solid #ddd; border-radius: 8px;
+                        font-size: 13px; background: #fff; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -56,7 +59,7 @@
       return <div className="health">{dot(h.postgres)}PostgreSQL&nbsp;&nbsp;{dot(h.chroma)}ChromaDB</div>;
     }
 
-    function Upload() {
+    function Upload({ model }) {
       const [over, setOver] = useState(false);
       const [busy, setBusy] = useState(false);
       const [result, setResult] = useState(null);
@@ -67,6 +70,7 @@
         setBusy(true); setErr(null); setResult(null);
         const fd = new FormData();
         fd.append("file", file);
+        if (model) fd.append("model", model);
         try {
           const r = await fetch("/api/upload", { method: "POST", body: fd });
           if (!r.ok) throw new Error((await r.json()).detail || "上传失败");
@@ -119,7 +123,7 @@
       ));
     }
 
-    function Chat() {
+    function Chat({ model }) {
       const [msgs, setMsgs] = useState([]);
       const [q, setQ] = useState("");
       const [busy, setBusy] = useState(false);
@@ -132,7 +136,7 @@
         try {
           const r = await fetch("/api/ask", {
             method: "POST", headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({question}),
+            body: JSON.stringify({question, model: model || undefined}),
           });
           const data = await r.json();
           setMsgs(m => [...m, {role: "bot", text: data.answer || data.detail || "出错了"}]);
@@ -158,22 +162,46 @@
       );
     }
 
+    function ModelSelector({ models, selected, onChange }) {
+      if (!models) return null;
+      return (
+        <div className="model-bar">
+          <span style={{color: "#888"}}>模型：</span>
+          <select value={selected} onChange={e => onChange(e.target.value)}>
+            {Object.entries(models).map(([id, label]) =>
+              <option key={id} value={id}>{label}</option>)}
+          </select>
+        </div>
+      );
+    }
+
     function App() {
       const [tab, setTab] = useState("upload");
+      const [models, setModels] = useState(null);
+      const [model, setModel] = useState("");
       const tabs = {upload: "上传", files: "文件", chat: "问答"};
+
+      useEffect(() => {
+        fetch("/api/models").then(r => r.json()).then(data => {
+          setModels(data);
+          setModel(Object.keys(data)[0]);
+        }).catch(() => {});
+      }, []);
+
       return (
         <div className="wrap">
           <h1>家用文件知识库</h1>
           <div className="sub">拍照或拖拽上传文件，用自然语言搜索与问答</div>
           <Health />
+          <ModelSelector models={models} selected={model} onChange={setModel} />
           <div className="tabs">
             {Object.keys(tabs).map(k =>
               <div key={k} className={"tab" + (tab === k ? " active" : "")}
                    onClick={() => setTab(k)}>{tabs[k]}</div>)}
           </div>
-          {tab === "upload" && <Upload />}
+          {tab === "upload" && <Upload model={model} />}
           {tab === "files" && <Files />}
-          {tab === "chat" && <Chat />}
+          {tab === "chat" && <Chat model={model} />}
         </div>
       );
     }

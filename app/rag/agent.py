@@ -89,14 +89,15 @@ def _run_tool(name: str, args: dict) -> str:
     return f"未知工具：{name}"
 
 
-def agent_answer(question: str, max_turns: int = 6, verbose: bool = True) -> str:
+def agent_answer(question: str, max_turns: int = 6, verbose: bool = True, model: str = None) -> str:
     """Run the agentic loop and return Claude's final answer."""
     client = anthropic.Anthropic()
     messages = [{"role": "user", "content": question}]
+    _model = model or CLAUDE_MODEL
 
     for _turn in range(max_turns):
         resp = client.messages.create(
-            model=CLAUDE_MODEL,
+            model=_model,
             max_tokens=1024,
             system=SYSTEM_PROMPT,
             tools=TOOLS,

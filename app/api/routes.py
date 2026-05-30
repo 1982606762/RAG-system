@@ -8,10 +8,11 @@ import os
 import shutil
 import uuid
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 
-from core.config import FILES_DIR
+from core.config import FILES_DIR, AVAILABLE_MODELS
 from rag.service import ingest_file, list_documents
 from rag.agent import agent_answer
 from db.storage import run_sql, get_collection
@@ -23,6 +24,13 @@ os.makedirs(FILES_DIR, exist_ok=True)
 
 class AskRequest(BaseModel):
     question: str
+    model: Optional[str] = None
+
+
+@router.get("/models")
+def models():
+    """Return available Claude models for the frontend model selector."""
+    return AVAILABLE_MODELS
 
 
 @router.get("/health")
@@ -43,7 +51,7 @@ def health():
 
 
 @router.post("/upload")
-async def upload(file: UploadFile = File(...)):
+async def upload(file: UploadFile = File(...), model: Optional[str] = Form(None)):
     """Save the uploaded file, then run the ingest pipeline on it."""
     ext = os.path.splitext(file.filename or "")[1] or ".bin"
     saved_path = os.path.join(FILES_DIR, f"{uuid.uuid4()}{ext}")
@@ -51,7 +59,7 @@ async def upload(file: UploadFile = File(...)):
         shutil.copyfileobj(file.file, out)
 
     try:
-        result = ingest_file(saved_path)
+        result = ingest_file(saved_path, model=model or None)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -73,4 +81,4 @@ def ask(req: AskRequest):
     """Run the agentic RAG loop and return the final answer."""
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="问题不能为空")
-    return {"answer": agent_answer(req.question, verbose=False)}
+    return {"answer": agent_answer(req.question, verbose=False, model=req.model or None)}

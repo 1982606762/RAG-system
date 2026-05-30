@@ -39,11 +39,11 @@ def _encode_image(path: str):
         return base64.standard_b64encode(f.read()).decode("utf-8"), media_type
 
 
-def process_image(path: str) -> dict:
+def process_image(path: str, model: str = None) -> dict:
     image_b64, media_type = _encode_image(path)
     client = anthropic.Anthropic()
     message = client.messages.create(
-        model=CLAUDE_MODEL,
+        model=model or CLAUDE_MODEL,
         max_tokens=1024,
         messages=[{
             "role": "user",
