@@ -36,9 +36,24 @@ jobs:
           # Write the private key; printf guarantees a trailing newline.
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
+          # --- DEBUG: show non-secret connection vars. Brackets + length expose
+          # any hidden trailing spaces/newlines. (GitHub masks the value as ***,
+          # so we rely on the length and the surrounding brackets.)
+          echo "=== connection vars ==="
+          echo "SSH_HOST=[$SSH_HOST] len=${#SSH_HOST}"
+          echo "SSH_USER=[$SSH_USER] len=${#SSH_USER}"
+          echo "SSH_PORT=[$SSH_PORT] len=${#SSH_PORT}"
+          echo "DEPLOY_PATH=[$DEPLOY_PATH] len=${#DEPLOY_PATH}"
+          echo "SSH_KEY length=${#SSH_KEY} (content not printed)"
+          # --- DEBUG: print the fingerprint of the key CI actually loaded.
+          # Compare this against `ssh-keygen -lf ~/.ssh/rag_deploy` on your laptop.
+          echo "=== key fingerprint inside CI ==="
+          ssh-keygen -lf ~/.ssh/id_deploy || echo ">>> KEY FILE IS INVALID/EMPTY"
+          echo "================================="
           # Trust the host key so ssh doesn't prompt.
           ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           # IdentitiesOnly=yes -> use ONLY this key, exactly like the local test.
-          ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes -p "$SSH_PORT" \
+          # -v prints the verbose auth negotiation.
+          ssh -v -i ~/.ssh/id_deploy -o IdentitiesOnly=yes -o PasswordAuthentication=no -p "$SSH_PORT" \
             "$SSH_USER@$SSH_HOST" \
             "set -e && cd $DEPLOY_PATH && git pull --ff-only origin main && docker compose up -d --build && docker image prune -f"
