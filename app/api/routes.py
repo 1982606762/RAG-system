@@ -65,6 +65,7 @@ async def upload(file: UploadFile = File(...), model: Optional[str] = Form(None)
 
     return {
         "file_id": result["file_id"],
+        "duplicate": result.get("duplicate", False),
         "doc": result["doc"],
         "embedding_text": result["embedding_text"],
     }

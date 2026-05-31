@@ -29,3 +29,9 @@ AVAILABLE_MODELS = {
     "claude-haiku-4-5": "Haiku 4.5（快速·省钱）",
     "claude-sonnet-4-6": "Sonnet 4.6（更智能）",
 }
+
+# Local embedding model used for ChromaDB vectors.
+# gte-Qwen2-1.5B-instruct is an LLM-backbone embedding model (1.5B params),
+# producing 1536-dim vectors with strong Chinese / English / Danish support.
+# NOTE: switching models requires clearing Chroma and re-ingesting all files.
+EMBED_MODEL = os.getenv("EMBED_MODEL", "Alibaba-NLP/gte-Qwen2-1.5B-instruct")

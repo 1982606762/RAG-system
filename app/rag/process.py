@@ -1,9 +1,13 @@
-"""Processing layer — file -> Claude Vision -> two-layer structured JSON.
+"""Processing layer — file -> Claude API -> two-layer structured JSON.
 
 A file (image or PDF) cannot be embedded directly — RAG only works on text.
-We send the file to Claude Vision and get back a two-layer JSON:
+We send the file to Claude and get back a two-layer JSON:
     common layer  -> fields every document has (doc_type, date, vendor, ...)
     details layer -> fields Claude freely decides based on the content.
+
+Supported formats:
+    Images (JPEG, PNG, GIF, WEBP) -> sent as "image" content block
+    PDFs                          -> sent as "document" content block (Anthropic native PDF)
 """
 
 import base64
@@ -31,37 +35,60 @@ JSON 必须包含以下"通用层"字段（没有就填 null）：
 严格要求：只返回 JSON，不要任何解释、不要 markdown 代码块标记。"""
 
 
-def _encode_image(path: str):
+def _build_content_item(path: str) -> dict:
+    """Return the Anthropic content block for the file (image or PDF)."""
     media_type, _ = mimetypes.guess_type(path)
     if media_type is None:
         media_type = "image/jpeg"
+
     with open(path, "rb") as f:
-        return base64.standard_b64encode(f.read()).decode("utf-8"), media_type
+        data_b64 = base64.standard_b64encode(f.read()).decode("utf-8")
+
+    if media_type == "application/pdf":
+        # Anthropic's native PDF support: the model reads each page directly.
+        return {
+            "type": "document",
+            "source": {"type": "base64", "media_type": "application/pdf", "data": data_b64},
+        }
+    else:
+        return {
+            "type": "image",
+            "source": {"type": "base64", "media_type": media_type, "data": data_b64},
+        }
 
 
-def process_image(path: str, model: str = None) -> dict:
-    image_b64, media_type = _encode_image(path)
-    client = anthropic.Anthropic()
-    message = client.messages.create(
-        model=model or CLAUDE_MODEL,
-        max_tokens=1024,
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "image", "source": {
-                    "type": "base64", "media_type": media_type, "data": image_b64}},
-                {"type": "text", "text": EXTRACTION_PROMPT},
-            ],
-        }],
-    )
-    raw = message.content[0].text.strip()
+def _parse_json_response(raw: str) -> dict:
+    """Strip optional markdown fences and parse JSON from Claude's reply."""
+    raw = raw.strip()
     if raw.startswith("```"):
         raw = raw.strip("`")
-        raw = raw[raw.find("{"): raw.rfind("}") + 1]
+        raw = raw[raw.find("{"):raw.rfind("}") + 1]
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
         return {"_parse_error": True, "_raw": raw}
+
+
+# Module-level singleton — creating Anthropic() is cheap, but one instance is enough.
+_client = anthropic.Anthropic()
+
+
+def process_file(path: str, model: str = None) -> dict:
+    """Send an image or PDF to Claude and return the two-layer structured JSON."""
+    content_item = _build_content_item(path)
+    message = _client.messages.create(
+        model=model or CLAUDE_MODEL,
+        max_tokens=1024,
+        messages=[{
+            "role": "user",
+            "content": [content_item, {"type": "text", "text": EXTRACTION_PROMPT}],
+        }],
+    )
+    return _parse_json_response(message.content[0].text)
+
+
+# Backward-compat alias so existing code that calls process_image still works.
+process_image = process_file
 
 
 def build_embedding_text(doc: dict) -> str:

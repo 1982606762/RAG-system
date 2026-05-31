@@ -51,6 +51,9 @@ services:
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"   # taken from your .env / shell
     volumes:
       - ./files:/files          # put images here to ingest them from the container
+      # BGE-M3 (~1.5 GB) is downloaded from HuggingFace on first run and cached
+      # here, so docker compose up --build doesn't re-download the model.
+      - hf_cache:/root/.cache/huggingface
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,3 +63,4 @@ services:
 volumes:
   pgdata:
   chromadata:
+  hf_cache:

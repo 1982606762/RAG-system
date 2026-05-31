@@ -5,16 +5,53 @@ relevant; PostgreSQL holds the full structured metadata for that file.
 """
 
 import json
+from functools import lru_cache
 
 import chromadb
 import psycopg
+from sentence_transformers import SentenceTransformer
 
 from core.config import (
     PG_DSN,
     CHROMA_HOST,
     CHROMA_PORT,
     CHROMA_COLLECTION,
+    EMBED_MODEL,
 )
+
+
+# --- gte-Qwen2-1.5B Embedding (local, computed by this process) ------------
+#
+# gte-Qwen2-1.5B-instruct is built on the Qwen2 LLM backbone (1.5B params).
+# Unlike BERT-style encoders, it uses a decoder-only architecture fine-tuned
+# for retrieval, giving it much richer multilingual language understanding.
+#
+# It requires an instruction prefix to distinguish query vs. document:
+#   - documents (stored): encoded as plain text, no prefix needed
+#   - queries   (search): must be prefixed with the instruction string below
+#
+# Dimension: 1536  |  Max tokens: 8192  |  Memory: ~3 GB
+
+_QUERY_INSTRUCTION = (
+    "Instruct: Given a user query, retrieve the most relevant documents.\nQuery: "
+)
+
+
+@lru_cache(maxsize=1)
+def _get_embedder() -> SentenceTransformer:
+    # Loaded once on first call; subsequent calls return the cached instance.
+    return SentenceTransformer(EMBED_MODEL)
+
+
+def _embed(texts: list[str], is_query: bool = False) -> list[list[float]]:
+    """Return L2-normalised 1536-dim embeddings for a list of texts.
+
+    is_query=True  -> prepend the retrieval instruction (used at search time)
+    is_query=False -> plain text, no prefix     (used at ingest time)
+    """
+    if is_query:
+        texts = [_QUERY_INSTRUCTION + t for t in texts]
+    return _get_embedder().encode(texts, normalize_embeddings=True).tolist()
 
 
 # --- ChromaDB (vector store, a remote service) -----------------------------
@@ -26,9 +63,11 @@ def get_collection():
 
 
 def add_vector(file_id: str, text: str, doc_type: str):
-    """Store the narrative text; ChromaDB embeds it server-side."""
+    """Compute a gte-Qwen2 embedding locally, then store it in ChromaDB."""
+    embeddings = _embed([text], is_query=False)   # document: no prefix
     get_collection().upsert(
         ids=[file_id],
+        embeddings=embeddings,
         documents=[text],
         metadatas=[{"doc_type": doc_type or "other"}],
     )
@@ -36,27 +75,39 @@ def add_vector(file_id: str, text: str, doc_type: str):
 
 def vector_search(question: str, n: int = 3):
     """Return the most semantically similar file_ids."""
-    results = get_collection().query(query_texts=[question], n_results=n)
+    query_embedding = _embed([question], is_query=True)   # query: with prefix
+    results = get_collection().query(query_embeddings=query_embedding, n_results=n)
     return results["ids"][0]
 
 
 def vector_search_with_text(question: str, n: int = 3):
     """Like vector_search but also returns the stored narrative text per hit."""
-    results = get_collection().query(query_texts=[question], n_results=n)
+    query_embedding = _embed([question], is_query=True)   # query: with prefix
+    results = get_collection().query(query_embeddings=query_embedding, n_results=n)
     return list(zip(results["ids"][0], results["documents"][0]))
 
 
 # --- PostgreSQL (structured metadata) --------------------------------------
 
-def insert_document(file_id: str, doc: dict, file_path: str):
+def find_by_hash(file_hash: str) -> str | None:
+    """Return existing file_id if this MD5 hash was already ingested."""
+    with psycopg.connect(PG_DSN) as conn:
+        row = conn.execute(
+            "SELECT file_id FROM documents WHERE documents.file_hash = %s",
+            (file_hash,),
+        ).fetchone()
+    return str(row[0]) if row else None
+
+
+def insert_document(file_id: str, doc: dict, file_path: str, file_hash: str | None = None):
     """Write fixed columns + the full JSON (JSONB), keyed by file_id."""
     with psycopg.connect(PG_DSN) as conn:
         conn.execute(
             """
             INSERT INTO documents
                 (file_id, doc_type, doc_date, amount, currency,
-                 vendor, summary, file_path, full_analysis)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 vendor, summary, file_path, full_analysis, file_hash)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (file_id) DO NOTHING
             """,
             (
@@ -69,6 +120,7 @@ def insert_document(file_id: str, doc: dict, file_path: str):
                 doc.get("summary"),
                 file_path,
                 json.dumps(doc, ensure_ascii=False),
+                file_hash,
             ),
         )
 

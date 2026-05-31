@@ -35,8 +35,8 @@ def healthcheck():
     return ok
 
 
-def ingest(path: str):
-    result = ingest_file(path)
+def ingest(path: str, model: str = None):
+    result = ingest_file(path, model=model)
     print(f"已入库 file_id={result['file_id']}")
     print(f"  {result['embedding_text']}")
 
