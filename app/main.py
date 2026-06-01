@@ -1,25 +1,25 @@
-"""FastAPI app assembly — wire the router and serve the frontend.
+"""FastAPI app assembly — wire the routers.
+
+The frontend is NO LONGER served from here: nginx (the `frontend` container)
+serves the built React app and reverse-proxies /api to this service. So this
+process is a pure JSON API now.
 
 Run with: uvicorn main:app --host 0.0.0.0 --port 8001
 """
 
-import os
-
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 from api.routes import router
+from api.auth import router as auth_router
+from api.conversations import router as conv_router
 
 app = FastAPI(title="家用文件知识库")
 app.include_router(router)
-
-STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+app.include_router(auth_router)
+app.include_router(conv_router)
 
 
 @app.get("/")
-def index():
-    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
-
-
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+def root():
+    """Tiny liveness probe for hitting the backend directly (bypassing nginx)."""
+    return {"service": "rag-api", "status": "ok"}

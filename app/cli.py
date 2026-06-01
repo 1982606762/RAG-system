@@ -7,6 +7,9 @@ Commands:
     python cli.py ask "<question>"       # simple RAG: vector retrieve + answer
     python cli.py agent "<question>"     # agentic RAG: Claude picks the tools
     python cli.py sql "<SELECT ...>"     # raw exact query on PostgreSQL
+
+Files are per-user now, so the data commands need a user. For convenience the
+CLI just uses the FIRST registered user — register one via the web UI first.
 """
 
 import sys
@@ -15,6 +18,15 @@ from rag.answer import answer_with_rag
 from rag.agent import agent_answer
 from rag.service import ingest_file
 from db.storage import vector_search, fetch_by_ids, run_sql, get_collection
+
+
+def _debug_user_id() -> str:
+    """First registered user's id — a convenience for CLI debugging only."""
+    rows = run_sql("SELECT id FROM users ORDER BY created_at LIMIT 1")
+    if not rows:
+        print("还没有用户，请先在网页端注册一个账号。")
+        sys.exit(1)
+    return str(rows[0][0])
 
 
 def healthcheck():
@@ -36,24 +48,25 @@ def healthcheck():
 
 
 def ingest(path: str, model: str = None):
-    result = ingest_file(path, model=model)
+    result = ingest_file(path, _debug_user_id(), model=model)
     print(f"已入库 file_id={result['file_id']}")
     print(f"  {result['embedding_text']}")
 
 
 def vsearch(question: str):
-    file_ids = vector_search(question)
+    file_ids = vector_search(question, _debug_user_id())
     print(f"问题：{question}")
     for r in fetch_by_ids(file_ids):
         print(f"  {r[1]} | vendor={r[2]} | {r[3]} | amount={r[4]}")
 
 
 def ask(question: str):
-    print(answer_with_rag(question))
+    print(answer_with_rag(question, _debug_user_id()))
 
 
 def agent(question: str):
-    print(agent_answer(question))
+    result = agent_answer(question, _debug_user_id())
+    print(result["answer"])
 
 
 def sql(query: str):

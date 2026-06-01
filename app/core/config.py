@@ -35,3 +35,19 @@ AVAILABLE_MODELS = {
 # producing 1536-dim vectors with strong Chinese / English / Danish support.
 # NOTE: switching models requires clearing Chroma and re-ingesting all files.
 EMBED_MODEL = os.getenv("EMBED_MODEL", "Alibaba-NLP/gte-Qwen2-1.5B-instruct")
+
+
+# --- Auth / JWT ------------------------------------------------------------
+# JWT_SECRET signs every login token. In production ALWAYS override it with a
+# long random value via env (generate one with `openssl rand -hex 32`); the
+# default below is for local development only.
+JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
+JWT_ALGORITHM = "HS256"
+# How long a login stays valid before the user must sign in again. Default 7 days.
+JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", str(60 * 24 * 7)))
+
+
+# --- Celery / Redis --------------------------------------------------------
+# Redis is BOTH the broker (task queue) and the result backend. In compose,
+# the hostname "redis" resolves to the redis service over the internal network.
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")

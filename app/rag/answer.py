@@ -16,8 +16,8 @@ SYSTEM_PROMPT = """你是用户的私人文件助手。
 不要编造任何信息。"""
 
 
-def answer_with_rag(question: str, n: int = 3) -> str:
-    hits = vector_search_with_text(question, n=n)
+def answer_with_rag(question: str, user_id: str, n: int = 3) -> str:
+    hits = vector_search_with_text(question, user_id, n=n)
     if not hits:
         return "我在您的文件中没有找到相关记录。"
 

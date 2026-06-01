@@ -7,3 +7,9 @@ python-multipart
 # BGE-M3 local embedding: pulls in PyTorch (~700 MB) and the model (~1.5 GB on first run).
 # The model is cached in the hf_cache Docker volume so rebuilds don't re-download it.
 sentence-transformers
+# Auth: bcrypt password hashing + PyJWT login tokens.
+bcrypt
+pyjwt
+# Async task queue for background file ingestion.
+celery
+redis

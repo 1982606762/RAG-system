@@ -6,8 +6,9 @@ The agent loop:
     3. We execute the tool and feed the result back.
     4. Repeat until Claude produces a final text answer.
 
-Tools: vector_search (ChromaDB) and sql_search (PostgreSQL). "direct_answer"
-is simply Claude replying WITHOUT calling any tool.
+Tools: vector_search (ChromaDB) and sql_search (PostgreSQL). Both are scoped
+to ONE user. While running we collect the file_ids that vector_search hit, so
+the UI can show download/delete cards for exactly those files.
 """
 
 import json
@@ -15,7 +16,11 @@ import json
 import anthropic
 
 from core.config import CLAUDE_MODEL
-from db.storage import vector_search_with_text, run_select_safe
+from db.storage import (
+    vector_search_with_text,
+    run_select_for_user,
+    get_documents_meta,
+)
 
 
 TABLE_SCHEMA = """表 documents 的列：
@@ -71,16 +76,23 @@ TOOLS = [
 ]
 
 
-def _run_tool(name: str, args: dict) -> str:
-    """Execute a tool call and return a string result for Claude."""
+def _run_tool(name: str, args: dict, user_id: str, hit_ids: set) -> str:
+    """Execute a tool call (scoped to user_id) and return a string for Claude.
+
+    hit_ids accumulates file_ids that vector_search matched, so the caller can
+    turn them into download/delete cards afterwards.
+    """
     if name == "vector_search":
-        hits = vector_search_with_text(args["query"], n=args.get("n", 3))
+        hits = vector_search_with_text(args["query"], user_id, n=args.get("n", 3))
         if not hits:
             return "（无命中）"
+        for fid, _text in hits:
+            hit_ids.add(fid)
         return "\n".join(f"- {text}" for _fid, text in hits)
     if name == "sql_search":
         try:
-            rows = run_select_safe(args["sql"])
+            # CTE-scoped to this user; the model can't see other users' rows.
+            rows = run_select_for_user(args["sql"], user_id)
         except Exception as e:  # noqa: BLE001
             return f"查询出错：{e}"
         if not rows:
@@ -89,11 +101,30 @@ def _run_tool(name: str, args: dict) -> str:
     return f"未知工具：{name}"
 
 
-def agent_answer(question: str, max_turns: int = 6, verbose: bool = True, model: str = None) -> str:
-    """Run the agentic loop and return Claude's final answer."""
+def agent_answer(
+    question: str,
+    user_id: str,
+    history: list[dict] | None = None,
+    max_turns: int = 6,
+    verbose: bool = True,
+    model: str = None,
+) -> dict:
+    """Run the agentic loop. Returns {"answer": str, "files": [card, ...]}.
+
+    files are the documents vector_search hit this turn (metadata cards the UI
+    renders with download/delete buttons).
+
+    history: prior CLEAN turns of this conversation, as
+    [{"role": "user"|"assistant", "content": str}, ...]. We replay them in
+    front of the new question so Claude can resolve references like "它"/"那个".
+    """
     client = anthropic.Anthropic()
-    messages = [{"role": "user", "content": question}]
+    messages = [
+        {"role": h["role"], "content": h["content"]} for h in (history or [])
+    ]
+    messages.append({"role": "user", "content": question})
     _model = model or CLAUDE_MODEL
+    hit_ids: set = set()
 
     for _turn in range(max_turns):
         resp = client.messages.create(
@@ -105,7 +136,9 @@ def agent_answer(question: str, max_turns: int = 6, verbose: bool = True, model:
         )
 
         if resp.stop_reason != "tool_use":
-            return "".join(b.text for b in resp.content if b.type == "text")
+            answer = "".join(b.text for b in resp.content if b.type == "text")
+            files = get_documents_meta(list(hit_ids), user_id)
+            return {"answer": answer, "files": files}
 
         messages.append({"role": "assistant", "content": resp.content})
         tool_results = []
@@ -113,7 +146,7 @@ def agent_answer(question: str, max_turns: int = 6, verbose: bool = True, model:
             if block.type == "tool_use":
                 if verbose:
                     print(f"  [工具] {block.name}({json.dumps(block.input, ensure_ascii=False)})")
-                result = _run_tool(block.name, block.input)
+                result = _run_tool(block.name, block.input, user_id, hit_ids)
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
@@ -121,4 +154,5 @@ def agent_answer(question: str, max_turns: int = 6, verbose: bool = True, model:
                 })
         messages.append({"role": "user", "content": tool_results})
 
-    return "（已达到最大步数，未能得出最终答案）"
+    files = get_documents_meta(list(hit_ids), user_id)
+    return {"answer": "（已达到最大步数，未能得出最终答案）", "files": files}
