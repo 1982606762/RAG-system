@@ -15,9 +15,9 @@ import json
 
 import anthropic
 
-from core.config import CLAUDE_MODEL
+from core.config import CLAUDE_MODEL, RELEVANCE_MAX_DISTANCE
 from db.storage import (
-    vector_search_with_text,
+    vector_search_scored,
     run_select_for_user,
     get_documents_meta,
 )
@@ -76,19 +76,27 @@ TOOLS = [
 ]
 
 
-def _run_tool(name: str, args: dict, user_id: str, hit_ids: set) -> str:
+def _run_tool(name: str, args: dict, user_id: str, hit_scores: dict) -> str:
     """Execute a tool call (scoped to user_id) and return a string for Claude.
 
-    hit_ids accumulates file_ids that vector_search matched, so the caller can
-    turn them into download/delete cards afterwards.
+    hit_scores maps file_id -> best (smallest) distance seen across all
+    vector_search calls this turn. We keep the distance so the caller can show
+    download/delete cards ONLY for files that are actually relevant (close
+    enough), and order them most-relevant-first.
+
+    Note: we still feed Claude EVERY retrieved snippet (so its answer isn't
+    starved of context); the distance gate only affects which file CARDS the UI
+    shows, not what the model reads.
     """
     if name == "vector_search":
-        hits = vector_search_with_text(args["query"], user_id, n=args.get("n", 3))
+        hits = vector_search_scored(args["query"], user_id, n=args.get("n", 3))
         if not hits:
             return "（无命中）"
-        for fid, _text in hits:
-            hit_ids.add(fid)
-        return "\n".join(f"- {text}" for _fid, text in hits)
+        for fid, _text, dist in hits:
+            # Keep the closest distance if this file was hit by multiple queries.
+            if fid not in hit_scores or dist < hit_scores[fid]:
+                hit_scores[fid] = dist
+        return "\n".join(f"- {text}" for _fid, text, _dist in hits)
     if name == "sql_search":
         try:
             # CTE-scoped to this user; the model can't see other users' rows.
@@ -99,6 +107,26 @@ def _run_tool(name: str, args: dict, user_id: str, hit_ids: set) -> str:
             return "（无结果）"
         return "\n".join(str(r) for r in rows)
     return f"未知工具：{name}"
+
+
+def _relevant_files(hit_scores: dict, user_id: str) -> list[dict]:
+    """Turn collected vector hits into UI file cards, keeping ONLY those within
+    the relevance threshold and ordering them most-relevant (closest) first.
+
+    This is what fixes "every chat dumps all my files": an unrelated question
+    whose nearest vector is still far away yields an empty list -> no cards.
+    """
+    relevant = sorted(
+        (fid for fid, dist in hit_scores.items() if dist <= RELEVANCE_MAX_DISTANCE),
+        key=lambda fid: hit_scores[fid],
+    )
+    if not relevant:
+        return []
+    cards = get_documents_meta(relevant, user_id)
+    # get_documents_meta doesn't preserve order, so re-sort by relevance.
+    order = {fid: i for i, fid in enumerate(relevant)}
+    cards.sort(key=lambda c: order.get(c["file_id"], 1e9))
+    return cards
 
 
 def agent_answer(
@@ -124,7 +152,7 @@ def agent_answer(
     ]
     messages.append({"role": "user", "content": question})
     _model = model or CLAUDE_MODEL
-    hit_ids: set = set()
+    hit_scores: dict = {}   # file_id -> best (smallest) vector distance this turn
 
     for _turn in range(max_turns):
         resp = client.messages.create(
@@ -137,7 +165,7 @@ def agent_answer(
 
         if resp.stop_reason != "tool_use":
             answer = "".join(b.text for b in resp.content if b.type == "text")
-            files = get_documents_meta(list(hit_ids), user_id)
+            files = _relevant_files(hit_scores, user_id)
             return {"answer": answer, "files": files}
 
         messages.append({"role": "assistant", "content": resp.content})
@@ -146,7 +174,7 @@ def agent_answer(
             if block.type == "tool_use":
                 if verbose:
                     print(f"  [工具] {block.name}({json.dumps(block.input, ensure_ascii=False)})")
-                result = _run_tool(block.name, block.input, user_id, hit_ids)
+                result = _run_tool(block.name, block.input, user_id, hit_scores)
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
@@ -154,5 +182,5 @@ def agent_answer(
                 })
         messages.append({"role": "user", "content": tool_results})
 
-    files = get_documents_meta(list(hit_ids), user_id)
+    files = _relevant_files(hit_scores, user_id)
     return {"answer": "（已达到最大步数，未能得出最终答案）", "files": files}

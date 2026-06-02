@@ -41,9 +41,10 @@ EMBED_MODEL = os.getenv("EMBED_MODEL", "Alibaba-NLP/gte-Qwen2-1.5B-instruct")
 # ("你好") it still returns *something*. We only surface a file card when its
 # distance is within this threshold, so off-topic chats show no cards.
 # Embeddings are L2-normalised and Chroma uses squared-L2 distance, whose range
-# is [0, 4] for unit vectors (0 = identical). ~1.0 ≈ cosine similarity 0.5.
-# Tunable via .env; the evals harness can sweep this to find the best value.
-RELEVANCE_MAX_DISTANCE = float(os.getenv("RELEVANCE_MAX_DISTANCE", "1.0"))
+# is [0, 4] for unit vectors (0 = identical). Empirically with gte-Qwen2:
+# truly-relevant hits land around ~1.0-1.1, while off-topic chit-chat is ~1.5+.
+# 1.15 sits in that gap. Tunable via .env; the evals harness can sweep it.
+RELEVANCE_MAX_DISTANCE = float(os.getenv("RELEVANCE_MAX_DISTANCE", "1.15"))
 
 
 # --- Auth / JWT ------------------------------------------------------------
