@@ -22,6 +22,11 @@ http.interceptors.response.use(
 )
 
 // --- Auth ------------------------------------------------------------------
+// Public flags the login page reads before anyone logs in (e.g. whether
+// self-registration is open). No token required.
+export const getAuthConfig = () =>
+  http.get('/api/auth/config').then((r) => r.data as { allow_register: boolean })
+
 export const register = (email: string, password: string) =>
   http.post('/api/auth/register', { email, password }).then((r) => r.data)
 
@@ -40,6 +45,25 @@ export const searchDocuments = (query: string) =>
 
 export const deleteDocument = (fileId: string) =>
   http.delete(`/api/documents/${fileId}`).then((r) => r.data)
+
+// Full structured data for the detail modal (incl. the dynamic details layer).
+export const getDocumentDetail = (fileId: string) =>
+  http.get(`/api/documents/${fileId}`).then((r) => r.data)
+
+// Fetch the original file as a blob and return BOTH an object URL (for
+// <img>/<iframe> src) and its MIME type (to decide image vs PDF vs other).
+// Like download, this must go through axios so the JWT header is sent — a bare
+// <img src="/api/..."> wouldn't carry the token and would 401.
+// Caller MUST URL.revokeObjectURL(url) when done to avoid leaking memory.
+export const fetchPreview = async (
+  fileId: string,
+): Promise<{ url: string; mime: string }> => {
+  const res = await http.get(`/api/documents/${fileId}/preview`, {
+    responseType: 'blob',
+  })
+  const blob = res.data as Blob
+  return { url: URL.createObjectURL(blob), mime: blob.type }
+}
 
 // Download must go through axios (NOT a plain <a href>), because the JWT lives
 // in the Authorization header — a normal link wouldn't send it and the server

@@ -19,7 +19,7 @@ from typing import Optional
 from core.config import FILES_DIR, AVAILABLE_MODELS
 from rag.service import ingest_file, list_documents, delete_file, semantic_search
 from rag.agent import agent_answer
-from db.storage import run_sql, get_collection, get_document
+from db.storage import run_sql, get_collection, get_document, get_document_full
 from api.deps import get_current_user
 from worker.celery_app import celery_app
 from worker.tasks import ingest_task
@@ -132,6 +132,30 @@ def search(req: SearchRequest, user: dict = Depends(get_current_user)):
     if not req.query.strip():
         raise HTTPException(status_code=400, detail="搜索词不能为空")
     return semantic_search(req.query, user["id"])
+
+
+@router.get("/documents/{file_id}")
+def document_detail(file_id: str, user: dict = Depends(get_current_user)):
+    """Full structured data for one file (for the detail modal), incl. the
+    dynamic `details` layer. 404 if not found / not owned."""
+    doc = get_document_full(file_id, user["id"])
+    if not doc:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return doc
+
+
+@router.get("/documents/{file_id}/preview")
+def preview(file_id: str, user: dict = Depends(get_current_user)):
+    """Serve the original file INLINE (Content-Disposition: inline) so the
+    browser renders it in the detail modal instead of downloading it.
+
+    Same ownership check as download; the only difference is `inline` vs
+    `attachment`, which is what tells the browser to display rather than save.
+    """
+    doc = get_document(file_id, user["id"])
+    if not doc or not doc["file_path"] or not os.path.exists(doc["file_path"]):
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return FileResponse(doc["file_path"], content_disposition_type="inline")
 
 
 @router.get("/documents/{file_id}/download")

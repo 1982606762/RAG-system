@@ -95,21 +95,60 @@ input:focus { border-color: var(--brand); }
   color: var(--muted);
   cursor: pointer;
   background: var(--panel);
+  transition: border-color .15s, background .15s;
 }
 .dropzone:hover { border-color: var(--brand); color: var(--brand); }
+/* Active drag state: highlight the whole zone so it's obvious you can drop. */
+.dropzone.dragover {
+  border-color: var(--brand);
+  background: var(--brand-weak);
+  color: var(--brand);
+}
+.dropzone-main { font-size: 15px; }
+.dropzone-sub { font-size: 13px; margin-top: 6px; opacity: .8; }
+
+/* Camera capture button (mostly useful on phones). */
+.camera-btn {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: #f0f1f3;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+.camera-btn:hover { background: var(--brand-weak); color: var(--brand); }
+
 .jobs { list-style: none; padding: 0; margin: 18px 0 0; }
 .job {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 10px 14px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
   margin-bottom: 8px;
 }
-.job-name { font-weight: 500; }
-.job-status { color: var(--muted); font-size: 13px; }
+/* Thumbnail (image preview) or a small "PDF" placeholder badge. */
+.job-thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.job-thumb-doc {
+  display: grid;
+  place-items: center;
+  background: var(--brand-weak);
+  color: var(--brand);
+  font-size: 11px;
+  font-weight: 600;
+}
+.job-name { font-weight: 500; flex: 1; }
+.job-status { color: var(--muted); font-size: 13px; text-align: right; }
 .job.success .job-status { color: var(--ok); }
 .job.failed .job-status { color: var(--err); }
 
@@ -123,6 +162,9 @@ table.docs th, table.docs td {
 }
 table.docs th { color: var(--muted); font-weight: 500; }
 .empty-row { text-align: center; color: var(--muted); padding: 24px; }
+/* Rows are clickable (open the detail modal). */
+.doc-row { cursor: pointer; }
+.doc-row:hover td { background: var(--brand-weak); }
 
 /* Search bar (Documents page) */
 .search-bar { display: flex; gap: 10px; margin-bottom: 16px; }
@@ -133,6 +175,80 @@ table.docs th { color: var(--muted); font-weight: 500; }
 .btn-sm { padding: 5px 10px; font-size: 13px; }
 .btn-danger { background: var(--err); }
 .row-actions { display: flex; gap: 8px; white-space: nowrap; }
+
+/* --- File detail modal ---------------------------------------------------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .45);
+  display: grid;
+  place-items: center;
+  z-index: 100;
+  padding: 24px;
+}
+.modal-card {
+  position: relative;
+  background: var(--panel);
+  border-radius: 14px;
+  width: min(960px, 100%);
+  max-height: 90vh;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .25);
+}
+.modal-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+  background: rgba(0, 0, 0, .06);
+  color: var(--text);
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+}
+.modal-body { display: flex; max-height: 90vh; }
+/* Left: preview pane */
+.modal-preview {
+  flex: 1.2;
+  background: #f0f1f3;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  min-height: 320px;
+}
+.modal-preview img { max-width: 100%; max-height: 90vh; display: block; }
+.modal-preview iframe { width: 100%; height: 90vh; border: 0; }
+.modal-hint { color: var(--muted); font-size: 14px; padding: 24px; text-align: center; }
+/* Right: metadata pane */
+.modal-meta { flex: 1; padding: 24px; overflow-y: auto; }
+.modal-meta h3 { margin: 0 0 16px; }
+.modal-meta h4 { margin: 20px 0 8px; color: var(--muted); font-size: 13px; }
+.meta-grid {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 8px 12px;
+  margin: 0;
+  font-size: 14px;
+}
+.meta-grid dt { color: var(--muted); }
+.meta-grid dd { margin: 0; word-break: break-word; }
+.meta-json {
+  margin: 0;
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.modal-actions { display: flex; gap: 8px; margin-top: 24px; }
+
+/* On narrow screens stack preview above metadata. */
+@media (max-width: 720px) {
+  .modal-body { flex-direction: column; overflow-y: auto; }
+  .modal-preview iframe { height: 50vh; }
+}
 
 /* --- Chat ----------------------------------------------------------------- */
 .chat { height: 100%; display: flex; }

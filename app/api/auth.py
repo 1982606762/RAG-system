@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from api.security import hash_password, verify_password, create_access_token
 from api.deps import get_current_user
+from core.config import ALLOW_REGISTER
 from db.storage import create_user, get_user_by_email
 
 # This router carries its own prefix, so main.py just include_router()s it.
@@ -32,9 +33,25 @@ def _token_response(user: dict) -> dict:
     }
 
 
+@router.get("/config")
+def auth_config():
+    """Public flags the login page reads BEFORE anyone logs in.
+
+    Lets the frontend hide the "register" link when self-signup is disabled.
+    """
+    return {"allow_register": ALLOW_REGISTER}
+
+
 @router.post("/register")
 def register(req: AuthRequest):
-    """Create a new account and immediately return a login token."""
+    """Create a new account and immediately return a login token.
+
+    Gated by ALLOW_REGISTER: on a private VPS this is off, so signups must be
+    created out-of-band via the CLI. The check is enforced HERE on the server —
+    hiding the UI button alone wouldn't stop a direct POST to this endpoint.
+    """
+    if not ALLOW_REGISTER:
+        raise HTTPException(status_code=403, detail="注册已关闭，请联系管理员开通账号")
     if not req.email.strip() or not req.password:
         raise HTTPException(status_code=400, detail="邮箱和密码不能为空")
     if len(req.password) < 6:

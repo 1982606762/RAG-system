@@ -104,6 +104,26 @@ def vector_search_with_text(question: str, user_id: str, n: int = 3):
     return list(zip(results["ids"][0], results["documents"][0]))
 
 
+def vector_search_scored(question: str, user_id: str, n: int = 3):
+    """Like vector_search_with_text but ALSO returns each hit's distance.
+
+    Returns a list of (file_id, text, distance), sorted nearest-first (Chroma's
+    default). Smaller distance = more similar. Callers use the distance to drop
+    weak/irrelevant matches (see RELEVANCE_MAX_DISTANCE).
+    """
+    query_embedding = _embed([question], is_query=True)   # query: with prefix
+    results = get_collection().query(
+        query_embeddings=query_embedding,
+        n_results=n,
+        where={"user_id": user_id},
+        include=["documents", "distances"],
+    )
+    ids = results["ids"][0]
+    docs = results["documents"][0]
+    dists = results["distances"][0]
+    return list(zip(ids, docs, dists))
+
+
 # --- PostgreSQL: users -----------------------------------------------------
 
 def create_user(email: str, password_hash: str) -> dict:
@@ -221,6 +241,36 @@ def get_document(file_id: str, user_id: str) -> dict | None:
     return {
         "file_id": str(row[0]), "doc_type": row[1], "vendor": row[2],
         "summary": row[3], "file_path": row[4],
+    }
+
+
+def get_document_full(file_id: str, user_id: str) -> dict | None:
+    """Fetch ALL display fields for the detail modal, including the full JSONB
+    analysis (the dynamic `details` layer Claude produced). Ownership-checked.
+
+    Does NOT return file_path (that's an internal disk path; the browser reaches
+    the original via the /preview and /download routes instead).
+    """
+    with psycopg.connect(PG_DSN) as conn:
+        row = conn.execute(
+            "SELECT file_id, doc_type, doc_date, amount, currency, vendor, "
+            "summary, full_analysis, created_at "
+            "FROM documents WHERE file_id = %s AND user_id = %s",
+            (file_id, user_id),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "file_id": str(row[0]),
+        "doc_type": row[1],
+        "doc_date": str(row[2]) if row[2] else None,
+        "amount": float(row[3]) if row[3] is not None else None,
+        "currency": row[4],
+        "vendor": row[5],
+        "summary": row[6],
+        # psycopg returns JSONB already decoded into a Python dict.
+        "full_analysis": row[7],
+        "created_at": str(row[8]) if row[8] else None,
     }
 
 

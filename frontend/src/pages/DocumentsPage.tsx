@@ -5,16 +5,19 @@ import {
   deleteDocument,
   downloadDocument,
 } from '../api'
+import FileDetailModal from '../components/FileDetailModal'
 
 // File list with two ways to find things:
 //   1. browse everything (newest first), or
 //   2. natural-language search (vector) — "去年的宜家收据" works without exact
-//      keywords. Each row can be downloaded or deleted.
+//      keywords. Click a row to open the detail modal; each row can also be
+//      downloaded or deleted inline.
 export default function DocumentsPage() {
   const [docs, setDocs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [searching, setSearching] = useState(false)
+  const [openId, setOpenId] = useState<string | null>(null) // detail modal target
 
   useEffect(() => {
     reload()
@@ -47,11 +50,14 @@ export default function DocumentsPage() {
     reload()
   }
 
+  const removeFromList = (fileId: string) =>
+    setDocs((prev) => prev.filter((d) => d.file_id !== fileId))
+
   const handleDelete = async (fileId: string) => {
     if (!confirm('确定删除这个文件吗？此操作不可恢复。')) return
     try {
       await deleteDocument(fileId)
-      setDocs((prev) => prev.filter((d) => d.file_id !== fileId))
+      removeFromList(fileId)
     } catch {
       alert('删除失败，请重试')
     }
@@ -96,13 +102,18 @@ export default function DocumentsPage() {
           </thead>
           <tbody>
             {docs.map((d) => (
-              <tr key={d.file_id}>
+              <tr
+                key={d.file_id}
+                className="doc-row"
+                onClick={() => setOpenId(d.file_id)}
+              >
                 <td>{d.doc_type || '-'}</td>
                 <td>{d.doc_date || '-'}</td>
                 <td>{d.vendor || '-'}</td>
                 <td>{d.amount ? `${d.amount} ${d.currency || ''}` : '-'}</td>
                 <td>{d.summary || '-'}</td>
-                <td className="row-actions">
+                {/* stopPropagation so clicking a button doesn't also open the modal */}
+                <td className="row-actions" onClick={(e) => e.stopPropagation()}>
                   <button
                     className="btn-sm"
                     onClick={() =>
@@ -131,6 +142,14 @@ export default function DocumentsPage() {
             )}
           </tbody>
         </table>
+      )}
+
+      {openId && (
+        <FileDetailModal
+          fileId={openId}
+          onClose={() => setOpenId(null)}
+          onDeleted={removeFromList}
+        />
       )}
     </div>
   )
