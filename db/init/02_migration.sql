@@ -61,3 +61,24 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at      TIMESTAMP DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages (conversation_id, created_at);
+
+-- (e) agent traces — observability for the agentic-RAG loop
+CREATE TABLE IF NOT EXISTS agent_traces (
+    id              UUID PRIMARY KEY,
+    user_id         UUID REFERENCES users(id),
+    conversation_id UUID,
+    question        TEXT,
+    answer          TEXT,
+    model           VARCHAR(60),
+    input_tokens    INTEGER,
+    output_tokens   INTEGER,
+    cost_usd        NUMERIC,
+    tool_calls      INTEGER,
+    num_turns       INTEGER,
+    duration_ms     INTEGER,
+    status          VARCHAR(20),
+    error           TEXT,
+    steps           JSONB,
+    created_at      TIMESTAMP DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_trace_user ON agent_traces (user_id, created_at DESC);

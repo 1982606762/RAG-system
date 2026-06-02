@@ -83,3 +83,35 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages (conversation_id, created_at);
+
+
+-- =====================================================================
+-- agent_traces — one row per agentic-RAG run (observability / tracing).
+-- Records WHAT the agent did to answer one question: which tools it called,
+-- how long each step took, how many tokens it burned, and the estimated cost.
+-- This is what powers the /traces page — debugging and cost visibility for an
+-- otherwise black-box LLM loop.
+--
+-- Fixed columns (indexed) for the list view + a JSONB `steps` column holding
+-- the ordered timeline (same "fixed columns + JSONB" pattern as documents).
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS agent_traces (
+    id              UUID PRIMARY KEY,
+    user_id         UUID REFERENCES users(id),
+    conversation_id UUID,                 -- nullable: /ask isn't tied to a thread
+    question        TEXT,
+    answer          TEXT,
+    model           VARCHAR(60),
+    input_tokens    INTEGER,
+    output_tokens   INTEGER,
+    cost_usd        NUMERIC,
+    tool_calls      INTEGER,
+    num_turns       INTEGER,              -- how many LLM rounds the loop ran
+    duration_ms     INTEGER,             -- wall-clock time of the whole run
+    status          VARCHAR(20),          -- 'ok' | 'error'
+    error           TEXT,                 -- populated when status = 'error'
+    steps           JSONB,                -- ordered timeline: LLM calls + tool calls
+    created_at      TIMESTAMP DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_trace_user ON agent_traces (user_id, created_at DESC);

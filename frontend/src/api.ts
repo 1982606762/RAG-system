@@ -33,6 +33,13 @@ export const register = (email: string, password: string) =>
 export const login = (email: string, password: string) =>
   http.post('/api/auth/login', { email, password }).then((r) => r.data)
 
+// --- Traces (observability) ------------------------------------------------
+export const listTraces = () =>
+  http.get('/api/traces').then((r) => r.data)
+
+export const getTrace = (id: string) =>
+  http.get(`/api/traces/${id}`).then((r) => r.data)
+
 // --- Documents -------------------------------------------------------------
 export const listDocuments = () =>
   http.get('/api/documents').then((r) => r.data)

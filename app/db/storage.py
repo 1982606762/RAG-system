@@ -445,3 +445,81 @@ def get_messages(conv_id: str) -> list[dict]:
             (conv_id,),
         ).fetchall()
     return [{"role": r[0], "content": r[1], "created_at": r[2]} for r in rows]
+
+
+# --- PostgreSQL: agent traces (observability) ------------------------------
+
+def save_trace(user_id: str, trace: dict, conversation_id: str = None) -> None:
+    """Persist one agent run's trace. Best-effort: callers wrap this so that a
+    failure to record observability never breaks the actual answer."""
+    with psycopg.connect(PG_DSN) as conn:
+        conn.execute(
+            """
+            INSERT INTO agent_traces
+                (id, user_id, conversation_id, question, answer, model,
+                 input_tokens, output_tokens, cost_usd, tool_calls,
+                 num_turns, duration_ms, status, error, steps)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                str(uuid.uuid4()),
+                user_id,
+                conversation_id,
+                trace.get("question"),
+                trace.get("answer"),
+                trace.get("model"),
+                trace.get("input_tokens"),
+                trace.get("output_tokens"),
+                trace.get("cost_usd"),
+                trace.get("tool_calls"),
+                trace.get("num_turns"),
+                trace.get("duration_ms"),
+                trace.get("status"),
+                trace.get("error"),
+                json.dumps(trace.get("steps") or [], ensure_ascii=False),
+            ),
+        )
+
+
+def list_traces(user_id: str, limit: int = 50) -> list[dict]:
+    """Recent traces for the list view (no steps — keep the payload small)."""
+    with psycopg.connect(PG_DSN) as conn:
+        rows = conn.execute(
+            "SELECT id, question, model, cost_usd, tool_calls, num_turns, "
+            "duration_ms, status, created_at FROM agent_traces "
+            "WHERE user_id = %s ORDER BY created_at DESC LIMIT %s",
+            (user_id, limit),
+        ).fetchall()
+    keys = ["id", "question", "model", "cost_usd", "tool_calls", "num_turns",
+            "duration_ms", "status", "created_at"]
+    out = []
+    for r in rows:
+        d = dict(zip(keys, r))
+        d["id"] = str(d["id"])
+        d["cost_usd"] = float(d["cost_usd"]) if d["cost_usd"] is not None else None
+        d["created_at"] = str(d["created_at"]) if d["created_at"] else None
+        out.append(d)
+    return out
+
+
+def get_trace(trace_id: str, user_id: str) -> dict | None:
+    """One full trace incl. the step timeline, for the detail view. Owner-scoped."""
+    with psycopg.connect(PG_DSN) as conn:
+        row = conn.execute(
+            "SELECT id, question, answer, model, input_tokens, output_tokens, "
+            "cost_usd, tool_calls, num_turns, duration_ms, status, error, "
+            "steps, created_at FROM agent_traces "
+            "WHERE id = %s AND user_id = %s",
+            (trace_id, user_id),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "id": str(row[0]), "question": row[1], "answer": row[2], "model": row[3],
+        "input_tokens": row[4], "output_tokens": row[5],
+        "cost_usd": float(row[6]) if row[6] is not None else None,
+        "tool_calls": row[7], "num_turns": row[8], "duration_ms": row[9],
+        "status": row[10], "error": row[11],
+        "steps": row[12],   # JSONB -> already a Python list
+        "created_at": str(row[13]) if row[13] else None,
+    }

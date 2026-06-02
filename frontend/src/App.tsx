@@ -18,6 +18,7 @@ export default function App() {
           <NavLink to="/chat">问答</NavLink>
           <NavLink to="/upload">上传</NavLink>
           <NavLink to="/documents">文件</NavLink>
+          <NavLink to="/traces">轨迹</NavLink>
         </nav>
         <span className="spacer" />
         <span className="email">{user?.email}</span>

@@ -327,3 +327,40 @@ table.docs th { color: var(--muted); font-weight: 500; }
 }
 .composer { display: flex; gap: 10px; padding: 14px 24px; border-top: 1px solid var(--border); background: var(--panel); }
 .composer input { flex: 1; }
+
+/* --- Traces (observability) ----------------------------------------------- */
+.muted-hint { color: var(--muted); font-size: 13px; margin: -6px 0 16px; }
+.trace-q {
+  max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Status badge: ok = green, error = red */
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  font-size: 12px; font-weight: 600;
+}
+.badge.ok { background: #e6f4ec; color: var(--ok); }
+.badge.error { background: #fdeaea; color: var(--err); }
+
+/* Trace detail modal */
+.trace-detail { padding: 24px; overflow-y: auto; max-height: 90vh; }
+.trace-detail h3 { margin: 0 0 16px; }
+.trace-detail h4 { margin: 22px 0 10px; color: var(--muted); font-size: 13px; }
+
+/* Step timeline */
+.timeline { list-style: none; margin: 0; padding: 0; }
+.tl-item {
+  border-left: 3px solid var(--border);
+  padding: 8px 0 8px 14px; margin-left: 6px;
+}
+.tl-llm { border-left-color: var(--brand); }
+.tl-tool { border-left-color: #c79a2b; }
+.tl-head { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.tl-type { font-weight: 600; }
+.tl-name { color: var(--text); }
+.tl-dur { margin-left: auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.tl-meta { font-size: 12px; color: var(--muted); margin-top: 4px; word-break: break-word; }
+.tl-out { margin-top: 2px; }
+.trace-answer {
+  background: var(--bg); border-radius: 8px; padding: 12px;
+  font-size: 14px; line-height: 1.5; white-space: pre-wrap;
+}

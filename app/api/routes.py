@@ -19,7 +19,10 @@ from typing import Optional
 from core.config import FILES_DIR, AVAILABLE_MODELS
 from rag.service import ingest_file, list_documents, delete_file, semantic_search
 from rag.agent import agent_answer
-from db.storage import run_sql, get_collection, get_document, get_document_full
+from db.storage import (
+    run_sql, get_collection, get_document, get_document_full,
+    save_trace, list_traces, get_trace,
+)
 from api.deps import get_current_user
 from worker.celery_app import celery_app
 from worker.tasks import ingest_task
@@ -179,7 +182,31 @@ def delete_doc(file_id: str, user: dict = Depends(get_current_user)):
 
 @router.post("/ask")
 def ask(req: AskRequest, user: dict = Depends(get_current_user)):
-    """Run the agentic RAG loop. Returns {"answer": ..., "files": [...]}."""
+    """Run the agentic RAG loop. Returns {"answer": ..., "files": [...], "usage": ...}."""
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="问题不能为空")
-    return agent_answer(req.question, user["id"], verbose=False, model=req.model or None)
+    result = agent_answer(req.question, user["id"], verbose=False, model=req.model or None)
+    # Persist the run trace (observability). Best-effort: never let a tracing
+    # failure break the answer the user is waiting for.
+    trace = result.pop("trace", None)
+    if trace is not None:
+        try:
+            save_trace(user["id"], trace)
+        except Exception:  # noqa: BLE001
+            pass
+    return result
+
+
+@router.get("/traces")
+def traces(limit: int = 50, user: dict = Depends(get_current_user)):
+    """List the current user's recent agent runs (for the /traces page)."""
+    return list_traces(user["id"], limit=limit)
+
+
+@router.get("/traces/{trace_id}")
+def trace_detail(trace_id: str, user: dict = Depends(get_current_user)):
+    """Full trace incl. the step-by-step timeline. 404 if not found / not owned."""
+    t = get_trace(trace_id, user["id"])
+    if not t:
+        raise HTTPException(status_code=404, detail="trace 不存在")
+    return t

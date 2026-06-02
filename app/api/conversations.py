@@ -19,6 +19,7 @@ from db.storage import (
     update_conversation_title,
     add_message,
     get_messages,
+    save_trace,
 )
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
@@ -74,6 +75,14 @@ def ask(conv_id: str, req: AskInConversation, user: dict = Depends(get_current_u
         model=req.model or None,
     )
     answer = result["answer"]
+    # 2b. Persist the run trace (observability), tagged with this conversation.
+    #     Best-effort: a tracing failure must never break the answer.
+    trace = result.pop("trace", None)
+    if trace is not None:
+        try:
+            save_trace(user["id"], trace, conversation_id=conv_id)
+        except Exception:  # noqa: BLE001
+            pass
     # 3. Persist BOTH sides of this turn (CLEAN text only — we store the answer
     #    string, NOT the file cards, which are a live UI affordance, not history).
     add_message(conv_id, "user", req.question)

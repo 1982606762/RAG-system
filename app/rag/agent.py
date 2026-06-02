@@ -12,6 +12,7 @@ the UI can show download/delete cards for exactly those files.
 """
 
 import json
+import time
 
 import anthropic
 
@@ -187,6 +188,11 @@ def agent_answer(
     in_tokens = 0
     out_tokens = 0
     tool_calls = 0
+    # Tracing: an ordered timeline of every step (LLM call / tool call) with its
+    # own duration, so the /traces page can show exactly what the agent did.
+    steps: list[dict] = []
+    num_turns = 0
+    run_start = time.perf_counter()
 
     def _usage() -> dict:
         """Build the usage/cost summary returned alongside every answer."""
@@ -198,7 +204,23 @@ def agent_answer(
             "cost_usd": _estimate_cost(_model, in_tokens, out_tokens),
         }
 
+    def _trace(answer: str, status: str = "ok", error: str = None) -> dict:
+        """Assemble the full trace record handed back to the caller to persist."""
+        return {
+            "question": question,
+            "answer": answer,
+            "status": status,
+            "error": error,
+            "num_turns": num_turns,
+            "duration_ms": int((time.perf_counter() - run_start) * 1000),
+            "steps": steps,
+            **_usage(),   # model / input_tokens / output_tokens / tool_calls / cost_usd
+        }
+
     for _turn in range(max_turns):
+        num_turns += 1
+        # --- LLM call (timed) ---
+        llm_start = time.perf_counter()
         resp = client.messages.create(
             model=_model,
             max_tokens=1024,
@@ -206,14 +228,25 @@ def agent_answer(
             tools=TOOLS,
             messages=messages,
         )
+        llm_ms = int((time.perf_counter() - llm_start) * 1000)
         # Accumulate this call's token usage (every round counts toward cost).
         in_tokens += resp.usage.input_tokens
         out_tokens += resp.usage.output_tokens
+        steps.append({
+            "seq": len(steps) + 1,
+            "type": "llm",
+            "name": f"Claude 调用 #{num_turns}",
+            "duration_ms": llm_ms,
+            "input_tokens": resp.usage.input_tokens,
+            "output_tokens": resp.usage.output_tokens,
+            "stop_reason": resp.stop_reason,
+        })
 
         if resp.stop_reason != "tool_use":
             answer = "".join(b.text for b in resp.content if b.type == "text")
             files = _relevant_files(hit_scores, user_id)
-            return {"answer": answer, "files": files, "usage": _usage()}
+            return {"answer": answer, "files": files,
+                    "usage": _usage(), "trace": _trace(answer)}
 
         messages.append({"role": "assistant", "content": resp.content})
         tool_results = []
@@ -222,7 +255,19 @@ def agent_answer(
                 tool_calls += 1
                 if verbose:
                     print(f"  [工具] {block.name}({json.dumps(block.input, ensure_ascii=False)})")
+                # --- tool call (timed) ---
+                tool_start = time.perf_counter()
                 result = _run_tool(block.name, block.input, user_id, hit_scores)
+                tool_ms = int((time.perf_counter() - tool_start) * 1000)
+                steps.append({
+                    "seq": len(steps) + 1,
+                    "type": "tool",
+                    "name": block.name,
+                    "duration_ms": tool_ms,
+                    # Truncate so a huge SQL dump doesn't bloat the trace row.
+                    "input": json.dumps(block.input, ensure_ascii=False)[:300],
+                    "output_preview": str(result)[:300],
+                })
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
@@ -231,8 +276,10 @@ def agent_answer(
         messages.append({"role": "user", "content": tool_results})
 
     files = _relevant_files(hit_scores, user_id)
+    answer = "（已达到最大步数，未能得出最终答案）"
     return {
-        "answer": "（已达到最大步数，未能得出最终答案）",
+        "answer": answer,
         "files": files,
         "usage": _usage(),
+        "trace": _trace(answer, status="error", error="max_turns reached"),
     }
