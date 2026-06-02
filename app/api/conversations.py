@@ -82,4 +82,11 @@ def ask(conv_id: str, req: AskInConversation, user: dict = Depends(get_current_u
     if not conv["title"]:
         update_conversation_title(conv_id, req.question[:20])
 
-    return {"conversation_id": conv_id, "answer": answer, "files": result["files"]}
+    # usage = token/cost observability from the agent loop; forward it so the
+    # UI can show "this answer cost $X". Not persisted (it's per-call, not history).
+    return {
+        "conversation_id": conv_id,
+        "answer": answer,
+        "files": result["files"],
+        "usage": result.get("usage"),
+    }

@@ -23,6 +23,35 @@ from db.storage import (
 )
 
 
+# --- Cost estimation (observability) ---------------------------------------
+# Approximate USD price per 1M tokens, per model. An agentic question may make
+# several Claude calls (one per tool round), so we sum usage across the whole
+# loop and turn it into a rough dollar figure the UI / traces can show.
+# Prices are ballpark and easy to update; keep them in one place.
+_PRICING_PER_MTOK = {
+    # model substring : (input $/Mtok, output $/Mtok)
+    "haiku": (1.0, 5.0),
+    "sonnet": (3.0, 15.0),
+    "opus": (15.0, 75.0),
+}
+
+
+def _price_for(model: str) -> tuple[float, float]:
+    """Pick the (input, output) price by matching a known family in the name.
+    Falls back to Haiku pricing for unknown models so cost is never None."""
+    name = (model or "").lower()
+    for key, price in _PRICING_PER_MTOK.items():
+        if key in name:
+            return price
+    return _PRICING_PER_MTOK["haiku"]
+
+
+def _estimate_cost(model: str, in_tokens: int, out_tokens: int) -> float:
+    """Rough USD cost for a token count. Used for observability, not billing."""
+    in_price, out_price = _price_for(model)
+    return round(in_tokens / 1e6 * in_price + out_tokens / 1e6 * out_price, 6)
+
+
 TABLE_SCHEMA = """表 documents 的列：
   file_id (UUID), doc_type (VARCHAR, 如 invoice/receipt/contract/manual/warranty),
   doc_date (DATE), amount (NUMERIC), currency (VARCHAR),
@@ -153,6 +182,21 @@ def agent_answer(
     messages.append({"role": "user", "content": question})
     _model = model or CLAUDE_MODEL
     hit_scores: dict = {}   # file_id -> best (smallest) vector distance this turn
+    # Observability: sum token usage across EVERY Claude call in the loop, plus
+    # how many tool rounds we ran, so callers can see cost/latency per question.
+    in_tokens = 0
+    out_tokens = 0
+    tool_calls = 0
+
+    def _usage() -> dict:
+        """Build the usage/cost summary returned alongside every answer."""
+        return {
+            "model": _model,
+            "input_tokens": in_tokens,
+            "output_tokens": out_tokens,
+            "tool_calls": tool_calls,
+            "cost_usd": _estimate_cost(_model, in_tokens, out_tokens),
+        }
 
     for _turn in range(max_turns):
         resp = client.messages.create(
@@ -162,16 +206,20 @@ def agent_answer(
             tools=TOOLS,
             messages=messages,
         )
+        # Accumulate this call's token usage (every round counts toward cost).
+        in_tokens += resp.usage.input_tokens
+        out_tokens += resp.usage.output_tokens
 
         if resp.stop_reason != "tool_use":
             answer = "".join(b.text for b in resp.content if b.type == "text")
             files = _relevant_files(hit_scores, user_id)
-            return {"answer": answer, "files": files}
+            return {"answer": answer, "files": files, "usage": _usage()}
 
         messages.append({"role": "assistant", "content": resp.content})
         tool_results = []
         for block in resp.content:
             if block.type == "tool_use":
+                tool_calls += 1
                 if verbose:
                     print(f"  [工具] {block.name}({json.dumps(block.input, ensure_ascii=False)})")
                 result = _run_tool(block.name, block.input, user_id, hit_scores)
@@ -183,4 +231,8 @@ def agent_answer(
         messages.append({"role": "user", "content": tool_results})
 
     files = _relevant_files(hit_scores, user_id)
-    return {"answer": "（已达到最大步数，未能得出最终答案）", "files": files}
+    return {
+        "answer": "（已达到最大步数，未能得出最终答案）",
+        "files": files,
+        "usage": _usage(),
+    }

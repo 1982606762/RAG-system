@@ -16,10 +16,19 @@ interface FileCard {
   vendor: string | null
   summary: string | null
 }
+// Token usage + estimated cost the backend reports per answer (observability).
+interface Usage {
+  model: string
+  input_tokens: number
+  output_tokens: number
+  tool_calls: number
+  cost_usd: number
+}
 interface Msg {
   role: string
   content: string
   files?: FileCard[] // only present on live answers, never in stored history
+  usage?: Usage // only on live answers; not persisted in conversation history
 }
 interface Conv {
   id: string
@@ -73,7 +82,12 @@ export default function ChatPage() {
       const data = await askInConversation(convId!, question)
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: data.answer, files: data.files },
+        {
+          role: 'assistant',
+          content: data.answer,
+          files: data.files,
+          usage: data.usage,
+        },
       ])
       refreshConvs() // the first question may have set the conversation title
     } catch {
@@ -161,6 +175,13 @@ export default function ChatPage() {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+              {/* Observability: show token usage + estimated cost for this answer */}
+              {m.usage && (
+                <div className="usage-line" title={`模型 ${m.usage.model}`}>
+                  ${m.usage.cost_usd.toFixed(4)} · {m.usage.input_tokens}↑/
+                  {m.usage.output_tokens}↓ tokens · {m.usage.tool_calls} 次工具调用
                 </div>
               )}
             </div>
