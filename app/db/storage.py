@@ -35,11 +35,10 @@ from core.config import (
 #   - documents (stored): encoded as plain text, no prefix needed
 #   - queries   (search): must be prefixed with the instruction string below
 #
-# Dimension: 1536  |  Max tokens: 8192  |  Memory: ~3 GB
+# Dimension: 768  |  Max tokens: 512  |  Memory: ~280 MB
 
-_QUERY_INSTRUCTION = (
-    "Instruct: Given a user query, retrieve the most relevant documents.\nQuery: "
-)
+_QUERY_PREFIX = "query: "
+_PASSAGE_PREFIX = "passage: "
 
 
 @lru_cache(maxsize=1)
@@ -49,13 +48,13 @@ def _get_embedder() -> SentenceTransformer:
 
 
 def _embed(texts: list[str], is_query: bool = False) -> list[list[float]]:
-    """Return L2-normalised 1536-dim embeddings for a list of texts.
+    """Return L2-normalised 768-dim embeddings for a list of texts.
 
-    is_query=True  -> prepend the retrieval instruction (used at search time)
-    is_query=False -> plain text, no prefix     (used at ingest time)
+    is_query=True  -> prepend "query: "   (used at search time)
+    is_query=False -> prepend "passage: " (used at ingest time)
     """
-    if is_query:
-        texts = [_QUERY_INSTRUCTION + t for t in texts]
+    prefix = _QUERY_PREFIX if is_query else _PASSAGE_PREFIX
+    texts = [prefix + t for t in texts]
     return _get_embedder().encode(texts, normalize_embeddings=True).tolist()
 
 

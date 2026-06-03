@@ -32,9 +32,9 @@ AVAILABLE_MODELS = {
 
 # Local embedding model used for ChromaDB vectors.
 # gte-Qwen2-1.5B-instruct is an LLM-backbone embedding model (1.5B params),
-# producing 1536-dim vectors with strong Chinese / English / Danish support.
+# producing 768-dim vectors with strong multilingual support (~280 MB).
 # NOTE: switching models requires clearing Chroma and re-ingesting all files.
-EMBED_MODEL = os.getenv("EMBED_MODEL", "Alibaba-NLP/gte-Qwen2-1.5B-instruct")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "intfloat/multilingual-e5-base")
 
 # Relevance gate for the chat "file cards". Vector search ALWAYS returns the
 # nearest N vectors, even when they're far away — so for an unrelated question
