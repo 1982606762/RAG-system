@@ -7,6 +7,7 @@ import {
   downloadDocument,
   deleteDocument,
 } from '../api'
+import { useT } from '../i18n'
 
 // A file card returned alongside an answer: it's whatever vector_search hit,
 // so the user can download or delete the source file without leaving the chat.
@@ -43,6 +44,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const t = useT()
 
   useEffect(() => {
     refreshConvs()
@@ -93,7 +95,7 @@ export default function ChatPage() {
     } catch {
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: '（出错了，请重试）' },
+        { role: 'assistant', content: t('chat.error') },
       ])
     } finally {
       setSending(false)
@@ -103,7 +105,7 @@ export default function ChatPage() {
   // Delete a file straight from the chat. On success, drop its card from every
   // message that referenced it so the buttons disappear immediately.
   const removeFile = async (fileId: string) => {
-    if (!confirm('确定删除这个文件吗？此操作不可恢复。')) return
+    if (!confirm(t('common.confirmDelete'))) return
     try {
       await deleteDocument(fileId)
       setMessages((prev) =>
@@ -114,7 +116,7 @@ export default function ChatPage() {
         ),
       )
     } catch {
-      alert('删除失败，请重试')
+      alert(t('common.deleteFailed'))
     }
   }
 
@@ -122,7 +124,7 @@ export default function ChatPage() {
     <div className="chat">
       <aside className="conv-list">
         <button className="new-conv" onClick={newConv}>
-          ＋ 新对话
+          {t('chat.newConv')}
         </button>
         {convs.map((c) => (
           <div
@@ -130,7 +132,7 @@ export default function ChatPage() {
             className={`conv-item ${c.id === activeId ? 'active' : ''}`}
             onClick={() => openConv(c.id)}
           >
-            {c.title || '新对话'}
+            {c.title || t('chat.convDefault')}
           </div>
         ))}
       </aside>
@@ -138,7 +140,7 @@ export default function ChatPage() {
       <section className="chat-main">
         <div className="messages">
           {messages.length === 0 && (
-            <div className="empty">问点什么吧，比如「我有哪些发票？」</div>
+            <div className="empty">{t('chat.empty')}</div>
           )}
           {messages.map((m, i) => (
             <div key={i} className={`msg ${m.role}`}>
@@ -149,7 +151,7 @@ export default function ChatPage() {
                     <div key={f.file_id} className="file-card">
                       <div className="file-card-info">
                         <span className="file-card-title">
-                          {f.vendor || f.doc_type || '文件'}
+                          {f.vendor || f.doc_type || t('common.file')}
                         </span>
                         {f.summary && (
                           <span className="file-card-sum">{f.summary}</span>
@@ -160,17 +162,17 @@ export default function ChatPage() {
                           className="btn-sm"
                           onClick={() =>
                             downloadDocument(f.file_id).catch(() =>
-                              alert('下载失败，请重试'),
+                              alert(t('common.downloadFailed')),
                             )
                           }
                         >
-                          下载
+                          {t('common.download')}
                         </button>
                         <button
                           className="btn-sm btn-danger"
                           onClick={() => removeFile(f.file_id)}
                         >
-                          删除
+                          {t('common.delete')}
                         </button>
                       </div>
                     </div>
@@ -179,20 +181,23 @@ export default function ChatPage() {
               )}
               {/* Observability: show token usage + estimated cost for this answer */}
               {m.usage && (
-                <div className="usage-line" title={`模型 ${m.usage.model}`}>
+                <div className="usage-line" title={`${m.usage.model}`}>
                   ${m.usage.cost_usd.toFixed(4)} · {m.usage.input_tokens}↑/
-                  {m.usage.output_tokens}↓ tokens · {m.usage.tool_calls} 次工具调用
+                  {m.usage.output_tokens}↓ tokens ·{' '}
+                  {t('chat.toolCalls', { n: m.usage.tool_calls })}
                 </div>
               )}
             </div>
           ))}
-          {sending && <div className="bubble assistant pending">思考中…</div>}
+          {sending && (
+            <div className="bubble assistant pending">{t('chat.thinking')}</div>
+          )}
         </div>
 
         <div className="composer">
           <input
             value={input}
-            placeholder="输入问题…"
+            placeholder={t('chat.inputPlaceholder')}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               // Enter sends, but ignore it while an IME is composing Chinese.
@@ -200,7 +205,7 @@ export default function ChatPage() {
             }}
           />
           <button onClick={send} disabled={sending}>
-            发送
+            {t('chat.send')}
           </button>
         </div>
       </section>

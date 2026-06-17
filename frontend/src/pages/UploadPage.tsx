@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { uploadAsync, getTask } from '../api'
+import { useT } from '../i18n'
 
 // Each selected file becomes a "job" row. We kick off the async upload, get a
 // task_id back, then poll /tasks/{id} every 1.5s until it finishes — that's
@@ -21,6 +22,7 @@ let counter = 0
 export default function UploadPage() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [dragging, setDragging] = useState(false)
+  const t = useT()
 
   const update = (id: number, patch: Partial<Job>) =>
     setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, ...patch } : j)))
@@ -35,7 +37,7 @@ export default function UploadPage() {
         }
       } catch {
         clearInterval(timer)
-        update(id, { status: 'failed', error: '查询任务状态失败' })
+        update(id, { status: 'failed', error: t('upload.taskQueryFailed') })
       }
     }, 1500)
   }
@@ -53,7 +55,7 @@ export default function UploadPage() {
         update(id, { status: 'queued' })
         poll(id, task_id)
       } catch {
-        update(id, { status: 'failed', error: '上传失败' })
+        update(id, { status: 'failed', error: t('upload.uploadFailed') })
       }
     }
   }
@@ -67,7 +69,7 @@ export default function UploadPage() {
 
   return (
     <div className="page">
-      <h2>上传文件</h2>
+      <h2>{t('upload.title')}</h2>
 
       <label
         className={`dropzone ${dragging ? 'dragover' : ''}`}
@@ -86,9 +88,9 @@ export default function UploadPage() {
           onChange={(e) => e.target.files && onFiles(e.target.files)}
         />
         <div className="dropzone-main">
-          {dragging ? '松开即可上传' : '拖拽文件到这里，或点击选择（可多选）'}
+          {dragging ? t('upload.dropRelease') : t('upload.dropHint')}
         </div>
-        <div className="dropzone-sub">支持图片或 PDF</div>
+        <div className="dropzone-sub">{t('upload.dropSub')}</div>
       </label>
 
       {/* Mobile: a separate button that opens the camera directly. */}
@@ -100,7 +102,7 @@ export default function UploadPage() {
           hidden
           onChange={(e) => e.target.files && onFiles(e.target.files)}
         />
-        📷 拍照上传
+        {t('upload.camera')}
       </label>
 
       <ul className="jobs">
@@ -112,7 +114,7 @@ export default function UploadPage() {
               <span className="job-thumb job-thumb-doc">PDF</span>
             )}
             <span className="job-name">{j.name}</span>
-            <span className="job-status">{statusLabel(j)}</span>
+            <span className="job-status">{statusLabel(j, t)}</span>
           </li>
         ))}
       </ul>
@@ -120,21 +122,23 @@ export default function UploadPage() {
   )
 }
 
-function statusLabel(j: Job): string {
+// `t` is passed in because this helper lives outside the component and can't
+// call the useT() hook itself.
+function statusLabel(j: Job, t: (k: string) => string): string {
   switch (j.status) {
     case 'uploading':
-      return '上传中…'
+      return t('upload.statusUploading')
     case 'queued':
     case 'pending':
-      return '排队中…'
+      return t('upload.statusQueued')
     case 'started':
-      return '分析中…'
+      return t('upload.statusStarted')
     case 'failed':
-      return '✗ 失败：' + (j.error || '')
+      return t('upload.statusFailedPrefix') + (j.error || '')
     case 'success': {
-      if (j.result?.duplicate) return '✓ 已存在（重复文件，已跳过）'
+      if (j.result?.duplicate) return t('upload.statusDuplicate')
       const summary = j.result?.doc?.summary
-      return '✓ 完成' + (summary ? `：${summary}` : '')
+      return t('upload.statusDone') + (summary ? `：${summary}` : '')
     }
     default:
       return j.status

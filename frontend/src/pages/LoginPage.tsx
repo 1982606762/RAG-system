@@ -2,6 +2,8 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { login, register, getAuthConfig } from '../api'
 import { useAuth } from '../store'
+import { useT, DEMO_EMAIL, DEMO_PASSWORD } from '../i18n'
+import LangSwitch from '../components/LangSwitch'
 
 // One form that does both login and register, toggled by the link at the
 // bottom. On success we store the token and jump to the chat page.
@@ -16,6 +18,7 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const setAuth = useAuth((s) => s.setAuth)
   const navigate = useNavigate()
+  const t = useT()
 
   // Ask the server once whether registration is open.
   useEffect(() => {
@@ -33,37 +36,82 @@ export default function LoginPage() {
       setAuth(data.access_token, data.user)
       navigate('/chat')
     } catch (err: any) {
-      setError(err.response?.data?.detail || '操作失败，请重试')
+      setError(err.response?.data?.detail || t('login.failed'))
     }
+  }
+
+  // Prefill the form with the demo credentials so a visitor can try the app
+  // with one click + Sign in.
+  const fillDemo = () => {
+    setEmail(DEMO_EMAIL)
+    setPassword(DEMO_PASSWORD)
+    setError('')
   }
 
   return (
     <div className="auth-wrap">
-      <form className="auth-card" onSubmit={submit}>
-        <h1>{mode === 'login' ? '登录' : '注册'}</h1>
-        <input
-          placeholder="邮箱"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-        <input
-          type="password"
-          placeholder="密码（至少 6 位）"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        {error && <div className="error">{error}</div>}
-        <button type="submit">{mode === 'login' ? '登录' : '注册'}</button>
-        {/* Only show the login/register toggle when signups are open. */}
-        {allowRegister && (
-          <p
-            className="toggle"
-            onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
-          >
-            {mode === 'login' ? '没有账号？去注册' : '已有账号？去登录'}
-          </p>
-        )}
-      </form>
+      {/* Decorative blurred blobs — pure CSS, no external image needed. */}
+      <span className="blob blob-a" />
+      <span className="blob blob-b" />
+      <span className="blob blob-c" />
+
+      <div className="auth-lang">
+        <LangSwitch />
+      </div>
+
+      <div className="auth-panel">
+        {/* Left: brand / hero copy */}
+        <div className="auth-hero">
+          <div className="auth-hero-logo">📁</div>
+          <h2 className="auth-hero-title">{t('app.brand').replace('📁 ', '')}</h2>
+          <p className="auth-hero-tag">{t('login.tagline')}</p>
+        </div>
+
+        {/* Right: the login form card */}
+        <form className="auth-card" onSubmit={submit}>
+          <h1>{mode === 'login' ? t('login.title') : t('login.register')}</h1>
+
+          <input
+            placeholder={t('login.email')}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <input
+            type="password"
+            placeholder={t('login.password')}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          {error && <div className="error">{error}</div>}
+          <button type="submit">
+            {mode === 'login' ? t('login.title') : t('login.register')}
+          </button>
+
+          {/* Demo credentials box: shows the account and offers one-click fill. */}
+          <div className="demo-box">
+            <div className="demo-row">
+              <span className="demo-label">{t('login.demoTitle')}</span>
+              <button type="button" className="demo-fill" onClick={fillDemo}>
+                {t('login.demoFill')}
+              </button>
+            </div>
+            <code className="demo-cred">
+              {DEMO_EMAIL} / {DEMO_PASSWORD}
+            </code>
+            <div className="demo-hint">{t('login.demoHint')}</div>
+          </div>
+
+          {/* Only show the login/register toggle when signups are open. */}
+          {allowRegister && (
+            <p
+              className="toggle"
+              onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
+            >
+              {mode === 'login' ? t('login.toRegister') : t('login.toLogin')}
+            </p>
+          )}
+        </form>
+      </div>
     </div>
   )
 }

@@ -5,6 +5,7 @@ import {
   downloadDocument,
   deleteDocument,
 } from '../api'
+import { useT } from '../i18n'
 
 // A modal that shows ONE file in full: original preview on the left, all the
 // structured fields (general layer + Claude's dynamic `details`) on the right.
@@ -26,6 +27,7 @@ export default function FileDetailModal({ fileId, onClose, onDeleted }: Props) {
   const [preview, setPreview] = useState<{ url: string; mime: string } | null>(
     null,
   )
+  const t = useT()
 
   // Load metadata + preview when the modal opens / the file changes.
   useEffect(() => {
@@ -63,13 +65,13 @@ export default function FileDetailModal({ fileId, onClose, onDeleted }: Props) {
   }, [onClose])
 
   const handleDelete = async () => {
-    if (!confirm('确定删除这个文件吗？此操作不可恢复。')) return
+    if (!confirm(t('common.confirmDelete'))) return
     try {
       await deleteDocument(fileId)
       onDeleted?.(fileId)
       onClose()
     } catch {
-      alert('删除失败，请重试')
+      alert(t('common.deleteFailed'))
     }
   }
 
@@ -80,50 +82,50 @@ export default function FileDetailModal({ fileId, onClose, onDeleted }: Props) {
     // Click the dark backdrop (but not the card) to close.
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose} aria-label="关闭">
+        <button className="modal-close" onClick={onClose} aria-label={t('detail.close')}>
           ✕
         </button>
 
         <div className="modal-body">
           {/* Left: original file preview */}
           <div className="modal-preview">
-            {!preview && <div className="modal-hint">预览加载中…</div>}
+            {!preview && <div className="modal-hint">{t('detail.previewLoading')}</div>}
             {preview && preview.mime.startsWith('image/') && (
-              <img src={preview.url} alt="预览" />
+              <img src={preview.url} alt={t('detail.previewAlt')} />
             )}
             {preview && preview.mime === 'application/pdf' && (
-              <iframe src={preview.url} title="PDF 预览" />
+              <iframe src={preview.url} title={t('detail.pdfTitle')} />
             )}
             {preview &&
               !preview.mime.startsWith('image/') &&
               preview.mime !== 'application/pdf' && (
-                <div className="modal-hint">该文件类型不支持预览，请下载查看</div>
+                <div className="modal-hint">{t('detail.noPreview')}</div>
               )}
           </div>
 
           {/* Right: structured fields */}
           <div className="modal-meta">
             {loading ? (
-              <div className="modal-hint">加载中…</div>
+              <div className="modal-hint">{t('common.loading')}</div>
             ) : (
               <>
-                <h3>{doc?.vendor || doc?.doc_type || '文件详情'}</h3>
+                <h3>{doc?.vendor || doc?.doc_type || t('detail.title')}</h3>
                 <dl className="meta-grid">
-                  <dt>类型</dt><dd>{doc?.doc_type || '-'}</dd>
-                  <dt>日期</dt><dd>{doc?.doc_date || '-'}</dd>
-                  <dt>相关方</dt><dd>{doc?.vendor || '-'}</dd>
-                  <dt>金额</dt>
+                  <dt>{t('docs.colType')}</dt><dd>{doc?.doc_type || '-'}</dd>
+                  <dt>{t('docs.colDate')}</dt><dd>{doc?.doc_date || '-'}</dd>
+                  <dt>{t('docs.colParty')}</dt><dd>{doc?.vendor || '-'}</dd>
+                  <dt>{t('docs.colAmount')}</dt>
                   <dd>
                     {doc?.amount != null
                       ? `${doc.amount} ${doc.currency || ''}`
                       : '-'}
                   </dd>
-                  <dt>摘要</dt><dd>{doc?.summary || '-'}</dd>
+                  <dt>{t('docs.colSummary')}</dt><dd>{doc?.summary || '-'}</dd>
                 </dl>
 
                 {Object.keys(details).length > 0 && (
                   <>
-                    <h4>详细信息</h4>
+                    <h4>{t('detail.section')}</h4>
                     <dl className="meta-grid">
                       {Object.entries(details).map(([k, v]) => (
                         <FieldRow key={k} label={k} value={v} />
@@ -136,13 +138,15 @@ export default function FileDetailModal({ fileId, onClose, onDeleted }: Props) {
                   <button
                     className="btn-sm"
                     onClick={() =>
-                      downloadDocument(fileId).catch(() => alert('下载失败'))
+                      downloadDocument(fileId).catch(() =>
+                        alert(t('common.downloadFailed')),
+                      )
                     }
                   >
-                    下载
+                    {t('common.download')}
                   </button>
                   <button className="btn-sm btn-danger" onClick={handleDelete}>
-                    删除
+                    {t('common.delete')}
                   </button>
                 </div>
               </>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { listTraces, getTrace } from '../api'
+import { useT } from '../i18n'
 
 // Observability page: every agentic-RAG run is recorded as a "trace". This page
 // lists recent runs (cost / latency / tool count) and lets you open one to see
@@ -43,6 +44,7 @@ export default function TracesPage() {
   const [loading, setLoading] = useState(true)
   const [openId, setOpenId] = useState<string | null>(null)
   const [detail, setDetail] = useState<TraceDetail | null>(null)
+  const t = useT()
 
   useEffect(() => {
     listTraces()
@@ -58,24 +60,22 @@ export default function TracesPage() {
 
   return (
     <div className="page">
-      <h2>运行轨迹 / Traces（{rows.length}）</h2>
-      <p className="muted-hint">
-        每次问答的 Agent 运行记录：调用了哪些工具、每步耗时、token 与成本。
-      </p>
+      <h2>{t('traces.title', { n: rows.length })}</h2>
+      <p className="muted-hint">{t('traces.hint')}</p>
 
       {loading ? (
-        <div>加载中…</div>
+        <div>{t('common.loading')}</div>
       ) : (
         <table className="docs">
           <thead>
             <tr>
-              <th>时间</th>
-              <th>问题</th>
-              <th>模型</th>
-              <th>成本</th>
-              <th>耗时</th>
-              <th>轮次/工具</th>
-              <th>状态</th>
+              <th>{t('traces.colTime')}</th>
+              <th>{t('traces.colQuestion')}</th>
+              <th>{t('traces.colModel')}</th>
+              <th>{t('traces.colCost')}</th>
+              <th>{t('traces.colDuration')}</th>
+              <th>{t('traces.colTurnsTools')}</th>
+              <th>{t('traces.colStatus')}</th>
             </tr>
           </thead>
           <tbody>
@@ -97,7 +97,7 @@ export default function TracesPage() {
             {rows.length === 0 && (
               <tr>
                 <td colSpan={7} className="empty-row">
-                  还没有运行记录，去「问答」问点什么
+                  {t('traces.empty')}
                 </td>
               </tr>
             )}
@@ -113,20 +113,20 @@ export default function TracesPage() {
             </button>
             <div className="trace-detail">
               {!detail ? (
-                <div className="modal-hint">加载中…</div>
+                <div className="modal-hint">{t('common.loading')}</div>
               ) : (
                 <>
-                  <h3>运行详情</h3>
+                  <h3>{t('traces.detail')}</h3>
                   <dl className="meta-grid">
-                    <dt>问题</dt><dd>{detail.question}</dd>
-                    <dt>模型</dt><dd>{detail.model}</dd>
-                    <dt>成本</dt><dd>${(detail.cost_usd ?? 0).toFixed(6)}</dd>
+                    <dt>{t('traces.fieldQuestion')}</dt><dd>{detail.question}</dd>
+                    <dt>{t('traces.fieldModel')}</dt><dd>{detail.model}</dd>
+                    <dt>{t('traces.fieldCost')}</dt><dd>${(detail.cost_usd ?? 0).toFixed(6)}</dd>
                     <dt>Tokens</dt>
                     <dd>
                       {detail.input_tokens}↑ / {detail.output_tokens}↓
                     </dd>
-                    <dt>耗时</dt><dd>{detail.duration_ms} ms</dd>
-                    <dt>状态</dt>
+                    <dt>{t('traces.fieldDuration')}</dt><dd>{detail.duration_ms} ms</dd>
+                    <dt>{t('traces.fieldStatus')}</dt>
                     <dd>
                       <span className={`badge ${detail.status}`}>
                         {detail.status}
@@ -135,13 +135,13 @@ export default function TracesPage() {
                     </dd>
                   </dl>
 
-                  <h4>步骤时间线</h4>
+                  <h4>{t('traces.timeline')}</h4>
                   <ol className="timeline">
                     {detail.steps.map((s) => (
                       <li key={s.seq} className={`tl-item tl-${s.type}`}>
                         <div className="tl-head">
                           <span className="tl-type">
-                            {s.type === 'llm' ? '🧠 LLM' : '🛠 工具'}
+                            {s.type === 'llm' ? t('traces.llm') : t('traces.tool')}
                           </span>
                           <span className="tl-name">{s.name}</span>
                           <span className="tl-dur">{s.duration_ms} ms</span>
@@ -154,15 +154,17 @@ export default function TracesPage() {
                         )}
                         {s.type === 'tool' && (
                           <div className="tl-meta">
-                            <div>入参：{s.input}</div>
-                            <div className="tl-out">结果：{s.output_preview}</div>
+                            <div>{t('traces.stepInput')}{s.input}</div>
+                            <div className="tl-out">
+                              {t('traces.stepResult')}{s.output_preview}
+                            </div>
                           </div>
                         )}
                       </li>
                     ))}
                   </ol>
 
-                  <h4>最终答案</h4>
+                  <h4>{t('traces.finalAnswer')}</h4>
                   <div className="trace-answer">{detail.answer}</div>
                 </>
               )}

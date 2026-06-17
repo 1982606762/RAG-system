@@ -6,6 +6,7 @@ import {
   downloadDocument,
 } from '../api'
 import FileDetailModal from '../components/FileDetailModal'
+import { useT } from '../i18n'
 
 // File list with two ways to find things:
 //   1. browse everything (newest first), or
@@ -18,6 +19,7 @@ export default function DocumentsPage() {
   const [query, setQuery] = useState('')
   const [searching, setSearching] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null) // detail modal target
+  const t = useT()
 
   useEffect(() => {
     reload()
@@ -54,22 +56,22 @@ export default function DocumentsPage() {
     setDocs((prev) => prev.filter((d) => d.file_id !== fileId))
 
   const handleDelete = async (fileId: string) => {
-    if (!confirm('确定删除这个文件吗？此操作不可恢复。')) return
+    if (!confirm(t('common.confirmDelete'))) return
     try {
       await deleteDocument(fileId)
       removeFromList(fileId)
     } catch {
-      alert('删除失败，请重试')
+      alert(t('common.deleteFailed'))
     }
   }
 
   return (
     <div className="page">
-      <h2>我的文件（{docs.length}）</h2>
+      <h2>{t('docs.title', { n: docs.length })}</h2>
 
       <div className="search-bar">
         <input
-          placeholder="用自然语言搜索，例如「去年的水电费发票」"
+          placeholder={t('docs.searchPlaceholder')}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
@@ -77,27 +79,27 @@ export default function DocumentsPage() {
           }}
         />
         <button onClick={runSearch} disabled={searching}>
-          {searching ? '搜索中…' : '搜索'}
+          {searching ? t('docs.searching') : t('docs.search')}
         </button>
         {query && (
           <button className="btn-ghost" onClick={clearSearch}>
-            清除
+            {t('docs.clear')}
           </button>
         )}
       </div>
 
       {loading ? (
-        <div>加载中…</div>
+        <div>{t('common.loading')}</div>
       ) : (
         <table className="docs">
           <thead>
             <tr>
-              <th>类型</th>
-              <th>日期</th>
-              <th>相关方</th>
-              <th>金额</th>
-              <th>摘要</th>
-              <th>操作</th>
+              <th>{t('docs.colType')}</th>
+              <th>{t('docs.colDate')}</th>
+              <th>{t('docs.colParty')}</th>
+              <th>{t('docs.colAmount')}</th>
+              <th>{t('docs.colSummary')}</th>
+              <th>{t('docs.colActions')}</th>
             </tr>
           </thead>
           <tbody>
@@ -112,6 +114,7 @@ export default function DocumentsPage() {
                 <td>{d.vendor || '-'}</td>
                 <td>{d.amount ? `${d.amount} ${d.currency || ''}` : '-'}</td>
                 <td>{d.summary || '-'}</td>
+                {/* i18n: cells fall back to '-' which is language-neutral */}
                 {/* stopPropagation so clicking a button doesn't also open the modal */}
                 <td className="row-actions" onClick={(e) => e.stopPropagation()}>
                   <button
@@ -122,13 +125,13 @@ export default function DocumentsPage() {
                       )
                     }
                   >
-                    下载
+                    {t('common.download')}
                   </button>
                   <button
                     className="btn-sm btn-danger"
                     onClick={() => handleDelete(d.file_id)}
                   >
-                    删除
+                    {t('common.delete')}
                   </button>
                 </td>
               </tr>
@@ -136,7 +139,7 @@ export default function DocumentsPage() {
             {docs.length === 0 && (
               <tr>
                 <td colSpan={6} className="empty-row">
-                  {query ? '没有找到匹配的文件' : '还没有文件，去「上传」试试'}
+                  {query ? t('docs.noMatch') : t('docs.noFiles')}
                 </td>
               </tr>
             )}
