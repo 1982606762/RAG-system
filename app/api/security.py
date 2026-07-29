@@ -26,7 +26,11 @@ def verify_password(plain: str, hashed: str) -> bool:
     """Check a login attempt against the stored hash. Never decrypts —
     bcrypt re-hashes `plain` with the salt baked into `hashed` and compares.
     """
-    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+    try:
+        return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+    except ValueError:
+        # bcrypt rejects inputs longer than its 72-byte limit in newer versions.
+        return False
 
 
 def create_access_token(user_id: str) -> str:

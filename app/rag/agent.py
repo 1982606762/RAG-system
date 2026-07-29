@@ -6,7 +6,7 @@ The agent loop:
     3. We execute the tool and feed the result back.
     4. Repeat until Claude produces a final text answer.
 
-Tools: vector_search (ChromaDB) and sql_search (PostgreSQL). Both are scoped
+Tools: vector_search (ChromaDB) and structured_search (PostgreSQL). Both are scoped
 to ONE user. While running we collect the file_ids that vector_search hit, so
 the UI can show download/delete cards for exactly those files.
 """
@@ -19,7 +19,7 @@ import anthropic
 from core.config import CLAUDE_MODEL, RELEVANCE_MAX_DISTANCE
 from db.storage import (
     vector_search_scored,
-    run_select_for_user,
+    structured_document_search,
     get_documents_meta,
 )
 
@@ -56,22 +56,21 @@ def _estimate_cost(model: str, in_tokens: int, out_tokens: int) -> float:
 TABLE_SCHEMA = """表 documents 的列：
   file_id (UUID), doc_type (VARCHAR, 如 invoice/receipt/contract/manual/warranty),
   doc_date (DATE), amount (NUMERIC), currency (VARCHAR),
-  vendor (VARCHAR), summary (TEXT), file_path (TEXT),
-  full_analysis (JSONB，含动态 details 层，如 full_analysis->'details'->>'brand'),
+  vendor (VARCHAR), summary (TEXT),
   created_at (TIMESTAMP)"""
 
 SYSTEM_PROMPT = f"""你是用户的私人文件知识库助手。用户用自然语言提问。
 
 你有两个工具：
 - vector_search：模糊语义检索，适合"记不清细节、描述性"的问题（如"我三月买的奶酪"）。
-- sql_search：精确查询，适合需要完整列举、范围筛选、计数或求和的问题（如"今年所有发票""消费总额"）。
-  你需要自己写一条 SELECT 语句，只能查 documents 表。
+- structured_search：精确查询，适合需要完整列举、范围筛选、计数或求和的问题（如"今年所有发票""消费总额"）。
+  通过结构化筛选条件查询 documents，不要自己编写 SQL。
 
 {TABLE_SCHEMA}
 
 决策原则：
 - 模糊/描述性 → vector_search
-- 精确/列举/汇总 → sql_search（必要时可多次调用，比如对比去年和今年要查两次）
+- 精确/列举/汇总 → structured_search（必要时可多次调用，比如对比去年和今年要查两次）
 - 与文件无关的闲聊 → 不调用任何工具，直接回答
 
 根据检索结果用中文回答。如果没有找到相关信息，直接说没有找到，不要编造。"""
@@ -92,15 +91,31 @@ TOOLS = [
         },
     },
     {
-        "name": "sql_search",
-        "description": "对 documents 表执行一条只读 SELECT 查询，用于精确筛选、"
-                       "完整列举、计数或求和。只能写 SELECT。",
+        "name": "structured_search",
+        "description": "按结构化条件精确筛选 documents，用于完整列举、计数或金额求和。",
         "input_schema": {
             "type": "object",
             "properties": {
-                "sql": {"type": "string", "description": "一条 SELECT 语句"},
+                "mode": {
+                    "type": "string",
+                    "enum": ["rows", "count", "sum_amount"],
+                    "description": "返回明细、数量或金额合计",
+                },
+                "doc_type": {"type": "string"},
+                "currency": {"type": "string"},
+                "vendor_contains": {"type": "string"},
+                "date_from": {"type": "string", "description": "YYYY-MM-DD"},
+                "date_to": {"type": "string", "description": "YYYY-MM-DD"},
+                "amount_min": {"type": "number"},
+                "amount_max": {"type": "number"},
+                "order_by": {
+                    "type": "string",
+                    "enum": ["created_at", "doc_date", "amount"],
+                },
+                "order": {"type": "string", "enum": ["asc", "desc"]},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
             },
-            "required": ["sql"],
+            "required": ["mode"],
         },
     },
 ]
@@ -119,7 +134,8 @@ def _run_tool(name: str, args: dict, user_id: str, hit_scores: dict) -> str:
     shows, not what the model reads.
     """
     if name == "vector_search":
-        hits = vector_search_scored(args["query"], user_id, n=args.get("n", 3))
+        n = max(1, min(int(args.get("n", 3)), 10))
+        hits = vector_search_scored(args["query"], user_id, n=n)
         if not hits:
             return "（无命中）"
         for fid, _text, dist in hits:
@@ -127,15 +143,14 @@ def _run_tool(name: str, args: dict, user_id: str, hit_scores: dict) -> str:
             if fid not in hit_scores or dist < hit_scores[fid]:
                 hit_scores[fid] = dist
         return "\n".join(f"- {text}" for _fid, text, _dist in hits)
-    if name == "sql_search":
+    if name == "structured_search":
         try:
-            # CTE-scoped to this user; the model can't see other users' rows.
-            rows = run_select_for_user(args["sql"], user_id)
+            result = structured_document_search(user_id, args)
         except Exception as e:  # noqa: BLE001
             return f"查询出错：{e}"
-        if not rows:
+        if result.get("mode") == "rows" and not result.get("rows"):
             return "（无结果）"
-        return "\n".join(str(r) for r in rows)
+        return json.dumps(result, ensure_ascii=False)
     return f"未知工具：{name}"
 
 
@@ -177,9 +192,19 @@ def agent_answer(
     front of the new question so Claude can resolve references like "它"/"那个".
     """
     client = anthropic.Anthropic()
-    messages = [
-        {"role": h["role"], "content": h["content"]} for h in (history or [])
-    ]
+    # Bound history by both turn count and characters. This keeps a long-lived
+    # conversation from eventually exceeding the model context or causing an
+    # unexpectedly expensive request.
+    recent_history = (history or [])[-20:]
+    kept: list[dict] = []
+    chars = 0
+    for item in reversed(recent_history):
+        content = str(item.get("content", ""))
+        if chars + len(content) > 30_000:
+            break
+        kept.append({"role": item["role"], "content": content})
+        chars += len(content)
+    messages = list(reversed(kept))
     messages.append({"role": "user", "content": question})
     _model = model or CLAUDE_MODEL
     hit_scores: dict = {}   # file_id -> best (smallest) vector distance this turn

@@ -16,9 +16,21 @@ interface AuthState {
   logout: () => void
 }
 
+function storedUser(): User | null {
+  try {
+    return JSON.parse(localStorage.getItem('user') || 'null')
+  } catch {
+    localStorage.removeItem('user')
+    localStorage.removeItem('token')
+    return null
+  }
+}
+
+const initialUser = storedUser()
+
 export const useAuth = create<AuthState>((set) => ({
-  token: localStorage.getItem('token'),
-  user: JSON.parse(localStorage.getItem('user') || 'null'),
+  token: initialUser ? localStorage.getItem('token') : null,
+  user: initialUser,
 
   setAuth: (token, user) => {
     localStorage.setItem('token', token)

@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { login, register, getAuthConfig } from '../api'
 import { useAuth } from '../store'
-import { useT, DEMO_EMAIL, DEMO_PASSWORD } from '../i18n'
+import { useT, SHOW_DEMO, DEMO_EMAIL, DEMO_PASSWORD } from '../i18n'
 import LangSwitch from '../components/LangSwitch'
 
 // One form that does both login and register, toggled by the link at the
@@ -88,7 +88,7 @@ export default function LoginPage() {
           </button>
 
           {/* Demo credentials box: shows the account and offers one-click fill. */}
-          <div className="demo-box">
+          {SHOW_DEMO && DEMO_EMAIL && DEMO_PASSWORD && <div className="demo-box">
             <div className="demo-row">
               <span className="demo-label">{t('login.demoTitle')}</span>
               <button type="button" className="demo-fill" onClick={fillDemo}>
@@ -99,7 +99,7 @@ export default function LoginPage() {
               {DEMO_EMAIL} / {DEMO_PASSWORD}
             </code>
             <div className="demo-hint">{t('login.demoHint')}</div>
-          </div>
+          </div>}
 
           {/* Only show the login/register toggle when signups are open. */}
           {allowRegister && (

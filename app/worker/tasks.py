@@ -4,6 +4,8 @@ The worker shares the app image and code, so it calls the EXACT same ingest
 pipeline the synchronous endpoint uses — no logic is duplicated.
 """
 
+import os
+
 from worker.celery_app import celery_app
 from rag.service import ingest_file
 
@@ -17,4 +19,15 @@ def ingest_task(path: str, user_id: str, model: str | None = None) -> dict:
     ingest_file raises, Celery marks the task FAILURE and stores the error
     so /tasks/{id} can report it.
     """
-    return ingest_file(path, user_id, model=model)
+    keep_file = False
+    try:
+        result = ingest_file(path, user_id, model=model)
+        keep_file = not result.get("duplicate", False)
+        return result
+    finally:
+        if not keep_file:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except OSError:
+                pass

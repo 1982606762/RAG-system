@@ -4,8 +4,7 @@ psycopg[binary]
 fastapi
 uvicorn[standard]
 python-multipart
-# BGE-M3 local embedding: pulls in PyTorch (~700 MB) and the model (~1.5 GB on first run).
-# The model is cached in the hf_cache Docker volume so rebuilds don't re-download it.
+# Local SentenceTransformer embedding model; model files are cached in hf_cache.
 sentence-transformers
 # Auth: bcrypt password hashing + PyJWT login tokens.
 bcrypt

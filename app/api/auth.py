@@ -6,6 +6,7 @@ sends it on every later request as `Authorization: Bearer <token>`.
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from psycopg.errors import UniqueViolation
 
 from api.security import hash_password, verify_password, create_access_token
 from api.deps import get_current_user
@@ -21,6 +22,22 @@ class AuthRequest(BaseModel):
     # (needs the email-validator package) if you want format validation.
     email: str
     password: str
+
+
+def _normalise_email(email: str) -> str:
+    return email.strip().lower()
+
+
+def _validate_credentials(req: AuthRequest, *, registering: bool) -> tuple[str, str]:
+    email = _normalise_email(req.email)
+    if not email or "@" not in email or len(email) > 255:
+        raise HTTPException(status_code=400, detail="请输入有效邮箱")
+    password_bytes = req.password.encode("utf-8")
+    if registering and len(req.password) < 8:
+        raise HTTPException(status_code=400, detail="密码至少 8 位")
+    if len(password_bytes) > 72:
+        raise HTTPException(status_code=400, detail="密码不能超过 72 字节")
+    return email, req.password
 
 
 def _token_response(user: dict) -> dict:
@@ -52,24 +69,26 @@ def register(req: AuthRequest):
     """
     if not ALLOW_REGISTER:
         raise HTTPException(status_code=403, detail="注册已关闭，请联系管理员开通账号")
-    if not req.email.strip() or not req.password:
-        raise HTTPException(status_code=400, detail="邮箱和密码不能为空")
-    if len(req.password) < 6:
-        raise HTTPException(status_code=400, detail="密码至少 6 位")
-    if get_user_by_email(req.email):
+    email, password = _validate_credentials(req, registering=True)
+    if get_user_by_email(email):
         raise HTTPException(status_code=409, detail="该邮箱已注册")
     # Store ONLY the hash — the raw password never touches the database.
-    user = create_user(req.email, hash_password(req.password))
+    try:
+        user = create_user(email, hash_password(password))
+    except UniqueViolation as exc:
+        # Handles two concurrent registrations for the same normalised email.
+        raise HTTPException(status_code=409, detail="该邮箱已注册") from exc
     return _token_response(user)
 
 
 @router.post("/login")
 def login(req: AuthRequest):
     """Verify credentials and return a fresh login token."""
-    user = get_user_by_email(req.email)
+    email, password = _validate_credentials(req, registering=False)
+    user = get_user_by_email(email)
     # Same error whether the email is unknown or the password is wrong, so an
     # attacker can't probe which emails exist.
-    if not user or not verify_password(req.password, user["password_hash"]):
+    if not user or not verify_password(password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="邮箱或密码错误")
     return _token_response(user)
 

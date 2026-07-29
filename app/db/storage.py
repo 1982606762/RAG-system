@@ -4,13 +4,14 @@ Both stores are linked by file_id (a UUID). ChromaDB finds *which* file is
 relevant; PostgreSQL holds the full structured metadata for that file.
 
 Privacy model: every file belongs to a user. Vector hits are filtered by a
-user_id stored in Chroma metadata; SQL is scoped to the user via a CTE (see
-run_select_for_user). So one user can never see another user's files.
+user_id stored in Chroma metadata; exact agent queries are built from a small
+allow-list and always include user_id. So users cannot query each other's files.
 """
 
 import json
 import uuid
 from functools import lru_cache
+from typing import Any
 
 import chromadb
 import psycopg
@@ -25,17 +26,13 @@ from core.config import (
 )
 
 
-# --- gte-Qwen2-1.5B Embedding (local, computed by this process) ------------
+# --- multilingual-e5 Embedding (local, computed by this process) ------------
 #
-# gte-Qwen2-1.5B-instruct is built on the Qwen2 LLM backbone (1.5B params).
-# Unlike BERT-style encoders, it uses a decoder-only architecture fine-tuned
-# for retrieval, giving it much richer multilingual language understanding.
-#
-# It requires an instruction prefix to distinguish query vs. document:
+# E5 uses an instruction prefix to distinguish query vs. document:
 #   - documents (stored): encoded as plain text, no prefix needed
 #   - queries   (search): must be prefixed with the instruction string below
 #
-# Dimension: 768  |  Max tokens: 512  |  Memory: ~280 MB
+# Dimension: 768  |  Max tokens: 512
 
 _QUERY_PREFIX = "query: "
 _PASSAGE_PREFIX = "passage: "
@@ -67,7 +64,7 @@ def get_collection():
 
 
 def add_vector(file_id: str, text: str, doc_type: str, user_id: str):
-    """Compute a gte-Qwen2 embedding locally, then store it in ChromaDB.
+    """Compute a multilingual-e5 embedding locally, then store it in ChromaDB.
 
     user_id is saved in the vector's metadata so searches can be filtered to
     only this user's files.
@@ -127,6 +124,7 @@ def vector_search_scored(question: str, user_id: str, n: int = 3):
 
 def create_user(email: str, password_hash: str) -> dict:
     """Insert a new user and return the public fields (id, email, created_at)."""
+    email = email.strip().lower()
     user_id = str(uuid.uuid4())
     with psycopg.connect(PG_DSN) as conn:
         row = conn.execute(
@@ -142,6 +140,7 @@ def create_user(email: str, password_hash: str) -> dict:
 
 def get_user_by_email(email: str) -> dict | None:
     """Look up a user for LOGIN — includes password_hash for verification."""
+    email = email.strip().lower()
     with psycopg.connect(PG_DSN) as conn:
         row = conn.execute(
             "SELECT id, email, password_hash FROM users WHERE email = %s",
@@ -287,7 +286,7 @@ def get_documents_meta(file_ids: list[str], user_id: str) -> list[dict]:
             "FROM documents WHERE file_id = ANY(%s) AND user_id = %s",
             (list(file_ids), user_id),
         ).fetchall()
-    return [
+    documents = [
         {
             "file_id": str(r[0]), "doc_type": r[1], "vendor": r[2],
             "summary": r[3], "doc_date": str(r[4]) if r[4] else None,
@@ -295,28 +294,48 @@ def get_documents_meta(file_ids: list[str], user_id: str) -> list[dict]:
         }
         for r in rows
     ]
+    order = {file_id: index for index, file_id in enumerate(file_ids)}
+    documents.sort(key=lambda item: order.get(item["file_id"], len(order)))
+    return documents
 
 
 def delete_document(file_id: str, user_id: str) -> str | None:
-    """Delete a file from PG (only if owned) and Chroma.
+    """Delete a file from Chroma and then PG, only if owned.
 
     Returns the file_path to remove from disk, or None if the file didn't
     exist or wasn't owned by this user (so the route can 404).
+
+    Chroma is deleted first. If it is temporarily unavailable we keep the PG
+    row and original file, so the user can retry instead of being told a
+    successful delete while private content remains in the vector store.
     """
     with psycopg.connect(PG_DSN) as conn:
         row = conn.execute(
-            "DELETE FROM documents WHERE file_id = %s AND user_id = %s "
-            "RETURNING file_path",
+            "SELECT file_path FROM documents WHERE file_id = %s AND user_id = %s",
             (file_id, user_id),
         ).fetchone()
     if not row:
         return None
-    # Remove the vector too. Ignore errors so a missing vector won't block delete.
+    get_collection().delete(ids=[file_id])
+    with psycopg.connect(PG_DSN) as conn:
+        conn.execute(
+            "DELETE FROM documents WHERE file_id = %s AND user_id = %s",
+            (file_id, user_id),
+        )
+    return row[0]
+
+
+def rollback_document(file_id: str, user_id: str) -> None:
+    """Best-effort compensation for a partially completed ingest."""
     try:
         get_collection().delete(ids=[file_id])
     except Exception:  # noqa: BLE001
         pass
-    return row[0]
+    with psycopg.connect(PG_DSN) as conn:
+        conn.execute(
+            "DELETE FROM documents WHERE file_id = %s AND user_id = %s",
+            (file_id, user_id),
+        )
 
 
 def run_sql(sql: str, params=()):
@@ -329,7 +348,7 @@ def run_select_safe(sql: str):
     """Read-only guard for SQL coming from the LLM (NOT user-scoped).
 
     Allows only a single SELECT so a crafted query can't modify or drop data.
-    Kept for non-private callers; the agent uses run_select_for_user instead.
+    Kept for trusted admin/debug callers; the agent never uses raw SQL.
     """
     cleaned = sql.strip().rstrip(";").strip()
     lowered = cleaned.lower()
@@ -343,29 +362,100 @@ def run_select_safe(sql: str):
         return conn.execute(cleaned).fetchall()
 
 
-def run_select_for_user(sql: str, user_id: str):
-    """Read-only guard for LLM SQL, scoped to ONE user's rows.
+def structured_document_search(user_id: str, filters: dict[str, Any]) -> dict:
+    """Run the agent's exact search without executing model-authored SQL.
 
-    The trick: we wrap the model's query in a CTE that redefines `documents`
-    as only this user's rows. A non-recursive CTE's inner `FROM documents`
-    still refers to the real table, while the model's outer `FROM documents`
-    binds to the CTE — so any query the model writes is automatically
-    restricted to this user, and the model never controls the filter.
+    Every selectable column, operator and sort expression comes from a local
+    allow-list. The model controls values only, and values are bound as query
+    parameters, so it cannot read another table or escape the user_id filter.
     """
-    cleaned = sql.strip().rstrip(";").strip()
-    lowered = cleaned.lower()
-    if not lowered.startswith("select"):
-        raise ValueError("只允许 SELECT 查询")
-    forbidden = (";", " insert ", " update ", " delete ", " drop ",
-                 " alter ", " truncate ", " create ", " grant ", "public.")
-    if any(tok in f" {lowered} " for tok in forbidden):
-        raise ValueError("查询包含不允许的操作")
-    scoped = (
-        "WITH documents AS (SELECT * FROM documents WHERE user_id = %s) "
-        + cleaned
-    )
+    mode = filters.get("mode", "rows")
+    if mode not in {"rows", "count", "sum_amount"}:
+        raise ValueError("不支持的查询模式")
+
+    where = ["user_id = %s"]
+    params: list[Any] = [user_id]
+
+    exact_fields = {
+        "doc_type": "doc_type",
+        "currency": "currency",
+    }
+    for key, column in exact_fields.items():
+        value = filters.get(key)
+        if value:
+            where.append(f"{column} = %s")
+            params.append(value)
+
+    vendor = filters.get("vendor_contains")
+    if vendor:
+        where.append("vendor ILIKE %s")
+        params.append(f"%{vendor}%")
+
+    range_fields = {
+        "date_from": ("doc_date", ">="),
+        "date_to": ("doc_date", "<="),
+        "amount_min": ("amount", ">="),
+        "amount_max": ("amount", "<="),
+    }
+    for key, (column, operator) in range_fields.items():
+        value = filters.get(key)
+        if value is not None:
+            where.append(f"{column} {operator} %s")
+            params.append(value)
+
+    if mode == "count":
+        select = "COUNT(*)"
+    elif mode == "sum_amount":
+        select = "COALESCE(SUM(amount), 0)"
+    else:
+        select = (
+            "file_id, doc_type, doc_date, amount, currency, vendor, summary, created_at"
+        )
+
+    query = f"SELECT {select} FROM documents WHERE {' AND '.join(where)}"
+    if mode == "rows":
+        order_columns = {
+            "created_at": "created_at",
+            "doc_date": "doc_date",
+            "amount": "amount",
+        }
+        order_by = order_columns.get(filters.get("order_by"), "created_at")
+        direction = "ASC" if filters.get("order") == "asc" else "DESC"
+        limit = max(1, min(int(filters.get("limit", 20)), 100))
+        query += f" ORDER BY {order_by} {direction} NULLS LAST LIMIT %s"
+        params.append(limit)
+
     with psycopg.connect(PG_DSN) as conn:
-        return conn.execute(scoped, (user_id,)).fetchall()
+        rows = conn.execute(query, params).fetchall()
+
+    if mode != "rows":
+        value = rows[0][0] if rows else 0
+        if mode == "count":
+            value = int(value or 0)
+        else:
+            value = float(value or 0)
+        return {"mode": mode, "value": value}
+
+    keys = [
+        "file_id", "doc_type", "doc_date", "amount", "currency",
+        "vendor", "summary", "created_at",
+    ]
+    return {
+        "mode": mode,
+        "rows": [
+            {
+                key: (
+                    str(value)
+                    if key in {"file_id", "doc_date", "created_at"} and value is not None
+                    else float(value)
+                    if key == "amount" and value is not None
+                    else value
+                )
+                for key, value in zip(keys, row)
+            }
+            for row in rows
+        ],
+    }
 
 
 # --- PostgreSQL: conversations & messages ----------------------------------
@@ -390,7 +480,7 @@ def list_conversations(user_id: str) -> list[dict]:
     with psycopg.connect(PG_DSN) as conn:
         rows = conn.execute(
             "SELECT id, title, created_at FROM conversations "
-            "WHERE user_id = %s ORDER BY created_at DESC",
+            "WHERE user_id = %s ORDER BY created_at DESC LIMIT 200",
             (user_id,),
         ).fetchall()
     return [{"id": str(r[0]), "title": r[1], "created_at": r[2]} for r in rows]
@@ -436,11 +526,13 @@ def add_message(conv_id: str, role: str, content: str) -> dict:
 
 
 def get_messages(conv_id: str) -> list[dict]:
-    """All messages in a conversation, oldest first (chat order)."""
+    """The latest 200 messages in a conversation, oldest first."""
     with psycopg.connect(PG_DSN) as conn:
         rows = conn.execute(
+            "SELECT role, content, created_at FROM ("
             "SELECT role, content, created_at FROM messages "
-            "WHERE conversation_id = %s ORDER BY created_at ASC",
+            "WHERE conversation_id = %s ORDER BY created_at DESC LIMIT 200"
+            ") recent ORDER BY created_at ASC",
             (conv_id,),
         ).fetchall()
     return [{"role": r[0], "content": r[1], "created_at": r[2]} for r in rows]

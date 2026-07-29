@@ -9,6 +9,8 @@ import hashlib
 import os
 import uuid
 
+from psycopg.errors import UniqueViolation
+
 from rag.process import process_file, build_embedding_text
 from db.storage import (
     insert_document,
@@ -16,6 +18,7 @@ from db.storage import (
     run_sql,
     find_by_hash,
     delete_document,
+    rollback_document,
     vector_search_with_text,
     get_documents_meta,
 )
@@ -47,8 +50,26 @@ def ingest_file(path: str, user_id: str, model: str = None) -> dict:
 
     file_id = str(uuid.uuid4())
     text = build_embedding_text(doc)
-    insert_document(file_id, doc, os.path.abspath(path), file_hash, user_id)  # PG
-    add_vector(file_id, text, doc.get("doc_type"), user_id)                   # Chroma
+    try:
+        insert_document(file_id, doc, os.path.abspath(path), file_hash, user_id)  # PG
+    except UniqueViolation:
+        # Two workers may pass the hash check at the same time. The database
+        # constraint is authoritative; the loser returns the winner as duplicate.
+        existing_id = find_by_hash(file_hash, user_id)
+        if existing_id:
+            return {
+                "file_id": existing_id,
+                "duplicate": True,
+                "embedding_text": "",
+                "doc": {},
+            }
+        raise
+    try:
+        add_vector(file_id, text, doc.get("doc_type"), user_id)               # Chroma
+    except Exception:
+        # Do not leave a PG row that makes every retry look like a duplicate.
+        rollback_document(file_id, user_id)
+        raise
     return {"file_id": file_id, "duplicate": False, "embedding_text": text, "doc": doc}
 
 

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.deps import get_current_user
+from core.config import AVAILABLE_MODELS
 from rag.agent import agent_answer
 from db.storage import (
     create_conversation,
@@ -23,6 +24,12 @@ from db.storage import (
 )
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
+
+
+def _validated_model(model: str | None) -> str | None:
+    if model and model not in AVAILABLE_MODELS:
+        raise HTTPException(status_code=422, detail="不支持的模型")
+    return model or None
 
 
 class NewConversation(BaseModel):
@@ -59,6 +66,8 @@ def ask(conv_id: str, req: AskInConversation, user: dict = Depends(get_current_u
     """Ask a question inside a conversation, with memory of earlier turns."""
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="问题不能为空")
+    if len(req.question) > 4000:
+        raise HTTPException(status_code=422, detail="问题过长")
     conv = get_conversation(conv_id, user["id"])
     if conv is None:
         raise HTTPException(status_code=404, detail="对话不存在")
@@ -72,7 +81,7 @@ def ask(conv_id: str, req: AskInConversation, user: dict = Depends(get_current_u
     #    them right inside the chat.
     result = agent_answer(
         req.question, user["id"], history=history, verbose=False,
-        model=req.model or None,
+        model=_validated_model(req.model),
     )
     answer = result["answer"]
     # 2b. Persist the run trace (observability), tagged with this conversation.

@@ -20,6 +20,7 @@ CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION", "home_docs")
 
 # Where uploaded originals are stored (mounted volume in docker-compose).
 FILES_DIR = os.getenv("FILES_DIR", "/files")
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
 
 # Anthropic. The SDK reads ANTHROPIC_API_KEY automatically; we expose the
 # model name here so it's configurable in one place.
@@ -31,8 +32,7 @@ AVAILABLE_MODELS = {
 }
 
 # Local embedding model used for ChromaDB vectors.
-# gte-Qwen2-1.5B-instruct is an LLM-backbone embedding model (1.5B params),
-# producing 768-dim vectors with strong multilingual support (~280 MB).
+# multilingual-e5-base produces 768-dim vectors with multilingual support.
 # NOTE: switching models requires clearing Chroma and re-ingesting all files.
 EMBED_MODEL = os.getenv("EMBED_MODEL", "intfloat/multilingual-e5-base")
 
@@ -41,9 +41,8 @@ EMBED_MODEL = os.getenv("EMBED_MODEL", "intfloat/multilingual-e5-base")
 # ("你好") it still returns *something*. We only surface a file card when its
 # distance is within this threshold, so off-topic chats show no cards.
 # Embeddings are L2-normalised and Chroma uses squared-L2 distance, whose range
-# is [0, 4] for unit vectors (0 = identical). Empirically with gte-Qwen2:
-# truly-relevant hits land around ~1.0-1.1, while off-topic chit-chat is ~1.5+.
-# 1.15 sits in that gap. Tunable via .env; the evals harness can sweep it.
+# is [0, 4] for unit vectors (0 = identical). Distance distributions vary by
+# model, so recalibrate this value whenever EMBED_MODEL changes.
 RELEVANCE_MAX_DISTANCE = float(os.getenv("RELEVANCE_MAX_DISTANCE", "1.15"))
 
 
@@ -65,6 +64,12 @@ def _as_bool(val: str) -> bool:
     return val.strip().lower() in ("1", "true", "yes", "on")
 
 ALLOW_REGISTER = _as_bool(os.getenv("ALLOW_REGISTER", "false"))
+
+APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+if APP_ENV == "production" and (
+    JWT_SECRET == "dev-secret-change-me" or JWT_SECRET.startswith("change-me")
+):
+    raise RuntimeError("生产环境必须设置安全的 JWT_SECRET")
 
 
 # --- Celery / Redis --------------------------------------------------------

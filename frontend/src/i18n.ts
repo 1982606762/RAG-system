@@ -253,8 +253,8 @@ export function useT() {
   }
 }
 
-// Demo credentials shown on the login page (and offered as one-click fill).
-// Create the matching account on the server with:
-//   docker compose exec app python cli.py create-user demo@demo.com demo12345
-export const DEMO_EMAIL = 'demo@demo.com'
-export const DEMO_PASSWORD = 'demo12345'
+// Demo credentials are opt-in build settings. Production builds contain no
+// usable defaults, so a private deployment does not advertise a shared login.
+export const SHOW_DEMO = import.meta.env.VITE_SHOW_DEMO === 'true'
+export const DEMO_EMAIL = import.meta.env.VITE_DEMO_EMAIL || ''
+export const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD || ''

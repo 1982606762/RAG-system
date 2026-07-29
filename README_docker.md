@@ -1,33 +1,33 @@
 # 家用文件知识库 — Docker 部署（双数据库）
 
-一条命令拉起整个栈：PostgreSQL（结构化元数据）+ ChromaDB（向量检索）+ app（处理与查询）。
+一条命令拉起整个栈：PostgreSQL（结构化元数据）+ ChromaDB（向量检索）
++ Redis/Celery（后台入库）+ FastAPI（API）+ React/nginx（Web）。
 
 ## 目录结构
 
 ```
 .
-├── docker-compose.yml        # 三服务编排
+├── docker-compose.yml        # 全部服务编排
 ├── .env.example              # 复制成 .env 填入 API key
 ├── db/init/01_schema.sql     # 首次启动自动建表
 ├── files/                    # 把要入库的图片放这里
-└── app/
-    ├── Dockerfile
-    ├── requirements.txt
-    ├── main.py               # FastAPI 装配入口（uvicorn 跑这个）
-    ├── cli.py                # 命令行入口
-    ├── core/
-    │   └── config.py         # 全部读环境变量
-    ├── db/
-    │   └── storage.py        # PostgreSQL + ChromaDB 读写
-    ├── rag/
-    │   ├── process.py        # Claude Vision -> 结构化 JSON
-    │   ├── service.py        # 入库编排（CLI 与 API 共用）
-    │   ├── answer.py         # 简单 RAG
-    │   └── agent.py          # Agentic RAG（tool calling）
-    ├── api/
-    │   └── routes.py         # 所有 /api/* 路由
-    └── static/
-        └── index.html        # 单文件 React 前端
+├── app/
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── main.py               # FastAPI 装配入口（uvicorn 跑这个）
+│   ├── cli.py                # 命令行入口
+│   ├── core/
+│   │   └── config.py         # 全部读环境变量
+│   ├── db/
+│   │   └── storage.py        # PostgreSQL + ChromaDB 读写
+│   ├── rag/
+│   │   ├── process.py        # Claude Vision -> 结构化 JSON
+│   │   ├── service.py        # 入库编排（CLI 与 API 共用）
+│   │   ├── answer.py         # 简单 RAG
+│   │   └── agent.py          # Agentic RAG（tool calling）
+│   └── api/
+│       └── routes.py         # /api/* 路由
+└── frontend/                 # React 前端与 nginx 反向代理
 ```
 
 ## 启动
@@ -59,7 +59,8 @@ http://localhost:8001
 
 ```
 GET  /api/health       两库连通状态
-POST /api/upload       上传并入库（multipart file）
+POST /api/upload_async 上传并创建后台入库任务（multipart file）
+GET  /api/tasks/{id}   查询当前用户的任务状态
 GET  /api/documents    文件列表
 POST /api/ask          {"question": "..."} -> 智能问答
 ```
@@ -106,6 +107,5 @@ docker compose down -v          # 停止并删除数据卷（清空数据库）
 
 ## 说明
 
-- ChromaDB 这里用镜像自带的默认 embedding 模型。后续可换成设计里的 **BGE-M3**：在 app 内用 `SentenceTransformer` 自己算向量再传给 Chroma，或给 Chroma 配自定义 embedding function。换模型不影响双存储与 file_id 的架构。
-- `app` 容器目前用 `tail -f /dev/null` 保持存活，靠 `docker compose exec` 跑命令。**阶段 5** 会把它换成常驻的 FastAPI 服务，并加上前端。
-```
+- embedding 由 app/worker 内的 `SentenceTransformer` 计算，再写入 Chroma。切换模型后需要清空向量集合并重新入库。
+- `app` 是常驻 FastAPI API；`celery_worker` 负责后台入库；浏览器只访问 nginx 暴露的 `8001`。
