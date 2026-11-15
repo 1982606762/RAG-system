@@ -1,5 +1,5 @@
-# Push-to-deploy: every push to `main` SSHes into the VPS, pulls the
-# latest code, and rebuilds the Docker stack.
+# Manual deployment while the application is being rebuilt.
+# Prepare the owner password and stop legacy workers before deploying.
 #
 # Uses the runner's native OpenSSH client so the behavior matches exactly
 # what works from your laptop: ssh -i key -o IdentitiesOnly=yes user@host
@@ -10,14 +10,9 @@
 #   SSH_PORT       SSH port (usually 22)
 #   SSH_KEY        the PRIVATE key whose public half is in the user's authorized_keys
 #   DEPLOY_PATH    absolute path of the repo on the server (e.g. /home/deploy/RAG-system)
-
 name: Deploy
-
 on:
-  push:
-    branches: [main]
-  workflow_dispatch: {}   # lets you trigger a deploy manually from the Actions tab
-
+  workflow_dispatch: {}
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -56,8 +51,7 @@ jobs:
              health_ok=0
              for attempt in \$(seq 1 12); do
                health=\$(docker compose exec -T frontend wget -qO- http://127.0.0.1/api/health 2>/dev/null || true)
-               if echo \"\$health\" | grep -q '\"chroma\":true' &&
-                  echo \"\$health\" | grep -q '\"postgres\":true'; then
+               if echo \"\$health\" | grep -q '\"postgres\":true'; then
                  health_ok=1
                  break
                fi

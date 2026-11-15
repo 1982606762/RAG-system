@@ -1,126 +1,83 @@
 import axios from 'axios'
 import { useAuth } from './store'
 
-// One axios instance for the whole app. No baseURL is needed: Vite's dev
-// proxy (and Nginx in prod) forwards /api to the backend on the same origin.
-export const http = axios.create()
+export const http = axios.create({ timeout: 15000 })
 
-// Attach the JWT to every outgoing request automatically.
 http.interceptors.request.use((config) => {
   const token = useAuth.getState().token
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
 
-// If the backend rejects the token (401), log out so the UI returns to /login.
 http.interceptors.response.use(
-  (res) => res,
+  (response) => response,
   (error) => {
     if (error.response?.status === 401) useAuth.getState().logout()
     return Promise.reject(error)
   },
 )
 
-// --- Auth ------------------------------------------------------------------
-// Public flags the login page reads before anyone logs in (e.g. whether
-// self-registration is open). No token required.
-export const getAuthConfig = () =>
-  http.get('/api/auth/config').then((r) => r.data as { allow_register: boolean })
+export async function login(password: string): Promise<string> {
+  const { data } = await http.post<{ access_token: string }>('/api/auth/login', { password })
+  return data.access_token
+}
 
-export const register = (email: string, password: string) =>
-  http.post('/api/auth/register', { email, password }).then((r) => r.data)
+export const getSession = () => http.get<{ role: 'owner' }>('/api/auth/me')
+export const getHealth = () => http.get<{ postgres: boolean }>('/api/health')
 
-export const login = (email: string, password: string) =>
-  http.post('/api/auth/login', { email, password }).then((r) => r.data)
+export interface DocumentRecord {
+  id: string
+  filename: string
+  extension: string
+  size_bytes: number
+  status: 'processing' | 'ready' | 'failed'
+  stage: string
+  error_code: string | null
+  error_message: string | null
+  page_count: number | null
+  block_count: number
+  chunk_count: number
+  warnings: string[]
+  created_at: string
+  parser_version: string | null
+  chunker_version: string | null
+  chunk_config: { unit?: string; target?: number; maximum?: number; overlap?: number }
+}
 
-// --- Traces (observability) ------------------------------------------------
-export const listTraces = () =>
-  http.get('/api/traces').then((r) => r.data)
+export interface ContentBlock {
+  index: number
+  kind: string
+  text: string
+  page: number | null
+  bbox: number[] | null
+  section: string[]
+  method: string
+}
 
-export const getTrace = (id: string) =>
-  http.get(`/api/traces/${id}`).then((r) => r.data)
+export interface Chunk {
+  index: number
+  text: string
+  kind: string
+  section: string[]
+  sources: { block_index: number; page: number | null; start: number; end: number }[]
+}
 
-// --- Documents -------------------------------------------------------------
-export const listDocuments = () =>
-  http.get('/api/documents').then((r) => r.data)
+export interface DocumentDetail extends DocumentRecord {
+  blocks: ContentBlock[]
+  chunks: Chunk[]
+}
 
-// Natural-language (semantic) search -> file cards. The backend embeds the
-// query and returns the closest files, so "去年的水电费" matches even without
-// exact keywords.
-export const searchDocuments = (query: string) =>
-  http.post('/api/search', { query }).then((r) => r.data)
-
-export const deleteDocument = (fileId: string) =>
-  http.delete(`/api/documents/${fileId}`).then((r) => r.data)
-
-// Full structured data for the detail modal (incl. the dynamic details layer).
-export const getDocumentDetail = (fileId: string) =>
-  http.get(`/api/documents/${fileId}`).then((r) => r.data)
-
-// Fetch the original file as a blob and return BOTH an object URL (for
-// <img>/<iframe> src) and its MIME type (to decide image vs PDF vs other).
-// Like download, this must go through axios so the JWT header is sent — a bare
-// <img src="/api/..."> wouldn't carry the token and would 401.
-// Caller MUST URL.revokeObjectURL(url) when done to avoid leaking memory.
-export const fetchPreview = async (
-  fileId: string,
-): Promise<{ url: string; mime: string }> => {
-  const res = await http.get(`/api/documents/${fileId}/preview`, {
-    responseType: 'blob',
+export const listDocuments = (offset = 0) => http.get<{ items: DocumentRecord[]; total: number }>(
+  '/api/documents', { params: { limit: 30, offset } },
+)
+export const getDocument = (id: string, signal?: AbortSignal) => http.get<DocumentDetail>(`/api/documents/${id}`, { signal })
+export const retryDocument = (id: string) => http.post<DocumentRecord>(`/api/documents/${id}/retry`, {}, { timeout: 155000 })
+export const getOriginal = (id: string, signal?: AbortSignal) => http.get<Blob>(`/api/documents/${id}/original`, { responseType: 'blob', signal })
+export function uploadDocument(file: File, onProgress: (percent: number) => void) {
+  const data = new FormData()
+  data.append('file', file)
+  return http.post<{ document: DocumentRecord; duplicate: boolean }>('/api/documents', data, {
+    timeout: 155000,
+    onUploadProgress: (event) => { if (event.total) onProgress(Math.round(event.loaded / event.total * 100)) },
   })
-  const blob = res.data as Blob
-  return { url: URL.createObjectURL(blob), mime: blob.type }
 }
-
-// Download must go through axios (NOT a plain <a href>), because the JWT lives
-// in the Authorization header — a normal link wouldn't send it and the server
-// would 401. So we fetch the bytes as a blob, read the filename the backend
-// put in Content-Disposition, then trigger a save via a temporary object URL.
-export const downloadDocument = async (fileId: string) => {
-  const res = await http.get(`/api/documents/${fileId}/download`, {
-    responseType: 'blob',
-  })
-  const cd = (res.headers['content-disposition'] as string) || ''
-  let filename = 'file'
-  // RFC 5987 "filename*=UTF-8''..." (used for non-ASCII names like Chinese)
-  // takes priority over the plain "filename=" form.
-  const star = /filename\*=(?:UTF-8'')?([^;]+)/i.exec(cd)
-  const plain = /filename="?([^";]+)"?/.exec(cd)
-  if (star) filename = decodeURIComponent(star[1].replace(/["']/g, ''))
-  else if (plain) filename = plain[1]
-
-  const url = URL.createObjectURL(res.data)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
-}
-
-// --- Async upload + task polling ------------------------------------------
-export const uploadAsync = (file: File, model?: string) => {
-  const form = new FormData()
-  form.append('file', file)
-  if (model) form.append('model', model)
-  return http.post('/api/upload_async', form).then((r) => r.data)
-}
-
-export const getTask = (taskId: string) =>
-  http.get(`/api/tasks/${taskId}`).then((r) => r.data)
-
-// --- Conversations ---------------------------------------------------------
-export const listConversations = () =>
-  http.get('/api/conversations').then((r) => r.data)
-
-export const createConversation = () =>
-  http.post('/api/conversations', {}).then((r) => r.data)
-
-export const getMessages = (convId: string) =>
-  http.get(`/api/conversations/${convId}/messages`).then((r) => r.data)
-
-export const askInConversation = (convId: string, question: string, model?: string) =>
-  http
-    .post(`/api/conversations/${convId}/ask`, { question, model })
-    .then((r) => r.data)

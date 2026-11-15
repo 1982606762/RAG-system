@@ -1,0 +1,83 @@
+name: Test document MVP
+on:
+  pull_request:
+  push:
+    branches: [main, 'codex/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local-ci-password
+          POSTGRES_DB: rag_mvp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PG_DSN: postgresql://postgres:local-ci-password@127.0.0.1:5432/rag_mvp_test
+      RAG_TEST_PG_DSN: postgresql://postgres:local-ci-password@127.0.0.1:5432/rag_mvp_test
+      PYTHONPATH: app
+      OMP_THREAD_LIMIT: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install backend and OCR test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-dan tesseract-ocr-chi-sim
+          pip install -r app/requirements.txt -r app/requirements-test.txt playwright
+          python -m playwright install --with-deps chromium
+      - name: Backend and native PostgreSQL integration tests
+        run: python -m unittest discover -s app/tests -v
+      - name: Frontend tests and build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test
+          npm run build
+      - name: Browser smoke test
+        env:
+          JWT_SECRET: ci-only-signing-key-with-at-least-32-bytes
+          RAG_E2E_PASSWORD: local-ci-browser-password
+          DOCUMENTS_DIR: /tmp/rag-mvp-browser-files
+          RAG_E2E_OUTPUT: /tmp/rag-mvp-browser-screenshots
+        run: |
+          export OWNER_PASSWORD_HASH="$(python -c 'import bcrypt, os; print(bcrypt.hashpw(os.environ["RAG_E2E_PASSWORD"].encode(), bcrypt.gensalt()).decode())')"
+          python app/cli.py init-db
+          uvicorn main:app --host 127.0.0.1 --port 8001 > /tmp/rag-api.log 2>&1 &
+          api_pid=$!
+          npm run dev --prefix frontend -- --host 127.0.0.1 > /tmp/rag-vite.log 2>&1 &
+          web_pid=$!
+          trap 'kill "$api_pid" "$web_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/api/health; then break; fi
+            sleep 1
+          done
+          python frontend/tests/mvp_smoke.py
+      - name: Preserve browser diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mvp-browser-diagnostics
+          path: |
+            /tmp/rag-mvp-browser-screenshots
+            /tmp/rag-api.log
+            /tmp/rag-vite.log
+          if-no-files-found: ignore

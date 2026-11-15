@@ -1,78 +1,32 @@
-"""Central configuration — everything read from environment variables.
-
-In containers we never hard-code hosts/passwords. docker-compose injects
-these via environment / .env, and the same code runs locally if you export
-the same vars.
-"""
+"""Configuration for the single-owner application shell."""
 
 import os
+from pathlib import Path
 
-# PostgreSQL connection (libpq DSN keywords).
-PG_DSN = os.getenv(
-    "PG_DSN",
-    "host=postgres port=5432 dbname=ragdb user=postgres password=ragpass",
-)
+import bcrypt
 
-# ChromaDB runs as its OWN service, so we talk to it over HTTP.
-CHROMA_HOST = os.getenv("CHROMA_HOST", "chroma")
-CHROMA_PORT = int(os.getenv("CHROMA_PORT", "8000"))
-CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION", "home_docs")
-
-# Where uploaded originals are stored (mounted volume in docker-compose).
-FILES_DIR = os.getenv("FILES_DIR", "/files")
-MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
-
-# Anthropic. The SDK reads ANTHROPIC_API_KEY automatically; we expose the
-# model name here so it's configurable in one place.
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-haiku-4-5")
-
-AVAILABLE_MODELS = {
-    "claude-haiku-4-5": "Haiku 4.5（快速·省钱）",
-    "claude-sonnet-4-6": "Sonnet 4.6（更智能）",
-}
-
-# Local embedding model used for ChromaDB vectors.
-# multilingual-e5-base produces 768-dim vectors with multilingual support.
-# NOTE: switching models requires clearing Chroma and re-ingesting all files.
-EMBED_MODEL = os.getenv("EMBED_MODEL", "intfloat/multilingual-e5-base")
-
-# Relevance gate for the chat "file cards". Vector search ALWAYS returns the
-# nearest N vectors, even when they're far away — so for an unrelated question
-# ("你好") it still returns *something*. We only surface a file card when its
-# distance is within this threshold, so off-topic chats show no cards.
-# Embeddings are L2-normalised and Chroma uses squared-L2 distance, whose range
-# is [0, 4] for unit vectors (0 = identical). Distance distributions vary by
-# model, so recalibrate this value whenever EMBED_MODEL changes.
-RELEVANCE_MAX_DISTANCE = float(os.getenv("RELEVANCE_MAX_DISTANCE", "1.15"))
-
-
-# --- Auth / JWT ------------------------------------------------------------
-# JWT_SECRET signs every login token. In production ALWAYS override it with a
-# long random value via env (generate one with `openssl rand -hex 32`); the
-# default below is for local development only.
-JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
+# Empty DSN lets libpq use PGHOST/PGPORT/PGDATABASE/PGUSER/PGPASSWORD.
+PG_DSN = os.getenv("PG_DSN", "")
+JWT_SECRET = os.getenv("JWT_SECRET", "")
 JWT_ALGORITHM = "HS256"
-# How long a login stays valid before the user must sign in again. Default 7 days.
-JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", str(60 * 24 * 7)))
-
-# Open self-registration. For a PRIVATE family knowledge base on a public VPS
-# this should be OFF: otherwise anyone who finds your domain can sign up and
-# burn YOUR Claude API quota. Create accounts via the CLI instead
-# (`python cli.py create-user <email> <password>`). Set ALLOW_REGISTER=true in
-# .env only if you really want public signups.
-def _as_bool(val: str) -> bool:
-    return val.strip().lower() in ("1", "true", "yes", "on")
-
-ALLOW_REGISTER = _as_bool(os.getenv("ALLOW_REGISTER", "false"))
-
-APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
-if APP_ENV == "production" and (
-    JWT_SECRET == "dev-secret-change-me" or JWT_SECRET.startswith("change-me")
-):
-    raise RuntimeError("生产环境必须设置安全的 JWT_SECRET")
+JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))
+JWT_ISSUER = "rag-api"
+JWT_AUDIENCE = "personal-knowledge-base"
+OWNER_PASSWORD_HASH = os.getenv("OWNER_PASSWORD_HASH", "")
+DOCUMENTS_DIR = Path(os.getenv("DOCUMENTS_DIR", str(Path(__file__).resolve().parents[2] / "files" / "mvp")))
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+MAX_PDF_PAGES = 50
+PROCESSING_TIMEOUT_SECONDS = 120
+OCR_LANGUAGES = os.getenv("OCR_LANGUAGES", "eng+dan+chi_sim")
 
 
-# --- Celery / Redis --------------------------------------------------------
-# Redis is BOTH the broker (task queue) and the result backend. In compose,
-# the hostname "redis" resolves to the redis service over the internal network.
-REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+def validate_config() -> None:
+    """Fail closed at API startup; the password CLI can run before setup."""
+    if len(JWT_SECRET.encode("utf-8")) < 32 or JWT_SECRET.startswith("change-me"):
+        raise RuntimeError("JWT_SECRET 必须是至少 32 字节的随机密钥")
+    if JWT_EXPIRE_MINUTES <= 0:
+        raise RuntimeError("JWT_EXPIRE_MINUTES 必须大于 0")
+    try:
+        bcrypt.checkpw(b"configuration-check", OWNER_PASSWORD_HASH.encode("utf-8"))
+    except ValueError as exc:
+        raise RuntimeError("请使用 python cli.py hash-password 配置 OWNER_PASSWORD_HASH") from exc

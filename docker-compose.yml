@@ -1,130 +1,53 @@
-# One command brings up the whole stack:
-#   docker compose up -d
-#
-# Services:
-#   postgres      : structured metadata (fixed columns + JSONB)
-#   chroma        : vector store (semantic search), runs as its own server
-#   redis         : Celery broker + result backend (the task queue)
-#   app           : FastAPI web server / API
-#   celery_worker : background worker that runs file ingestion off the request
-
 services:
   postgres:
     image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      # Password now comes from .env (never hardcode secrets in a file that's
-      # committed to git). ":?..." makes compose ABORT with this message if the
-      # variable is missing, so you can't accidentally boot with an empty pw.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ragdb
     ports:
-      # Bind to localhost only: reachable from the server itself or via an SSH
-      # tunnel, but NOT exposed to the public internet.
       - "127.0.0.1:5432:5432"
     volumes:
+      # Preserve the existing volume name. No schema migration runs at startup.
       - pgdata:/var/lib/postgresql/data
-      # SQL files here run automatically on FIRST init -> creates our tables.
-      - ./db/init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d ragdb"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  chroma:
-    image: chromadb/chroma:latest
-    ports:
-      # Localhost only — the app reaches chroma over the internal compose network.
-      - "127.0.0.1:8000:8000"
-    volumes:
-      - chromadata:/data
-    # No healthcheck: the chroma image ships no curl/wget, so a shell check
-    # would always read "unhealthy". The app's own healthcheck verifies it.
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      # Localhost only — app and worker reach it over the compose network.
-      - "127.0.0.1:6379:6379"
-    volumes:
-      - redisdata:/data
-
   app:
     build: ./app
-    # No host port anymore: the browser never hits FastAPI directly. nginx (the
-    # frontend service) reverse-proxies /api to "app:8001" over the internal
-    # compose network. `expose` documents the internal port without publishing it.
+    restart: unless-stopped
     expose:
       - "8001"
-    # env_file injects EVERYTHING in .env straight into the container, WITHOUT
-    # compose's ${...} substitution. This avoids a classic trap: if your shell
-    # already exports an (empty) ANTHROPIC_API_KEY, "${ANTHROPIC_API_KEY}" below
-    # would resolve to that empty value and shadow the real key in .env.
     env_file:
       - .env
     environment:
-      APP_ENV: "production"
-      # Service names ("postgres", "chroma", "redis") resolve via compose DNS.
-      # These are infra wiring (not secrets), so they stay inline. They also
-      # OVERRIDE anything with the same name in .env, which is what we want.
-      PG_DSN: "host=postgres port=5432 dbname=ragdb user=postgres password=${POSTGRES_PASSWORD}"
-      CHROMA_HOST: chroma
-      CHROMA_PORT: "8000"
-      REDIS_URL: "redis://redis:6379/0"
-      # ANTHROPIC_API_KEY and (optionally) JWT_SECRET now come from .env above.
+      # Use libpq variables so passwords do not need DSN-string escaping.
+      PG_DSN: ""
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ragdb
+      PGUSER: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      DOCUMENTS_DIR: /documents
     volumes:
-      - ./files:/files          # uploads land here; the worker reads them back
-      # The embedding model is downloaded once and cached across rebuilds.
-      - hf_cache:/root/.cache/huggingface
+      # Original uploads remain available for the future migration, read-only.
+      - ./files:/files:ro
+      - ./files/mvp:/documents
     depends_on:
       postgres:
         condition: service_healthy
-      chroma:
-        condition: service_started
-      redis:
-        condition: service_started
 
   frontend:
-    # Multi-stage build: Node compiles the React app, nginx serves it. The
-    # final image has NO Node — npm is a build-time tool only.
     build: ./frontend
+    restart: unless-stopped
     ports:
-      # This is now THE entry point. Open http://localhost:8001 in the browser.
-      # (kept on 8001 so your bookmarks/habits don't change.)
       - "8001:80"
     depends_on:
       - app
 
-  celery_worker:
-    build: ./app              # SAME image as app, different start command
-    command: celery -A worker.celery_app worker --loglevel=info
-    # Same reasoning as app: read the real ANTHROPIC_API_KEY from .env directly.
-    # The worker is the one that actually calls Claude Vision, so a missing key
-    # here is exactly what made ingest tasks fail.
-    env_file:
-      - .env
-    environment:
-      APP_ENV: "production"
-      PG_DSN: "host=postgres port=5432 dbname=ragdb user=postgres password=${POSTGRES_PASSWORD}"
-      CHROMA_HOST: chroma
-      CHROMA_PORT: "8000"
-      REDIS_URL: "redis://redis:6379/0"
-    volumes:
-      # MUST share the same files dir as app: app saves the upload here, then
-      # the worker reads it back by path. Different volumes would break ingest.
-      - ./files:/files
-      - hf_cache:/root/.cache/huggingface
-    depends_on:
-      postgres:
-        condition: service_healthy
-      chroma:
-        condition: service_started
-      redis:
-        condition: service_started
-
 volumes:
   pgdata:
-  chromadata:
-  redisdata:
-  hf_cache:
