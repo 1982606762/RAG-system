@@ -26,8 +26,8 @@ for name, service in old['services'].items():
         service['image'] = tag
         service.pop('build', None)
 (backup / 'application-services').write_text(' '.join(name for name in ('app', 'frontend', 'celery_worker') if name in old['services']) + '\n')
-# Compose interpolates resolved JSON again; preserve literal dollars in secrets.
-(backup / 'rollback.json').write_text(json.dumps(old).replace('$', '$$'))
+# Docker Compose config already escapes literal dollars for round-tripping.
+(backup / 'rollback.json').write_text(json.dumps(old))
 
 caddy = json.loads(subprocess.check_output([
     'docker', 'exec', 'caddy', 'caddy', 'adapt', '--config', '/etc/caddy/Caddyfile'
@@ -99,5 +99,5 @@ for volume in new['services']['app']['volumes']:
 new['services']['postgres'] = old['services']['postgres']
 new['volumes'] = old.get('volumes', {})
 path = release / 'production.json'
-path.write_text(json.dumps(new).replace('$', '$$'))
+path.write_text(json.dumps(new))
 path.chmod(0o600)

@@ -32,6 +32,7 @@ rollback=(docker compose --project-name rag-system --project-directory "$root" -
 read -r -a previous_services < "$backup/application-services"
 "${compose[@]}" config --quiet
 "${compose[@]}" build app frontend
+python3 "$release/scripts/verify-container-env.py"
 
 changed=0
 rollback_on_error() {
