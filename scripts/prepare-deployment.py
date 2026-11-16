@@ -70,6 +70,10 @@ if current.exists():
             if key in ('OWNER_PASSWORD_HASH', 'JWT_SECRET'):
                 values[key] = value.strip().strip("'\"")
 owner_hash = values.get('OWNER_PASSWORD_HASH') or (release / 'scripts/bootstrap-owner.hash').read_text().strip()
+version_file = release / 'scripts/owner-credential-version'
+previous_version = root / '.current-release/scripts/owner-credential-version'
+if version_file.exists() and (not previous_version.exists() or version_file.read_text() != previous_version.read_text()):
+    owner_hash = (release / 'scripts/bootstrap-owner.hash').read_text().strip()
 assert re.fullmatch(r'\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}', owner_hash)
 jwt_secret = values.get('JWT_SECRET', '')
 if len(jwt_secret.encode()) < 32 or jwt_secret.startswith('change-me'):
