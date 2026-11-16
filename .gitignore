@@ -27,3 +27,4 @@ venv/
 *.log
 .claude
 pas
+/docker-compose.override.yml

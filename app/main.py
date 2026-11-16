@@ -9,6 +9,7 @@ import psycopg
 from api.auth import router as auth_router
 from api.health import router as health_router
 from api.documents import router as documents_router
+from api.search import router as search_router
 from core.config import validate_config
 from documents.models import DocumentError
 
@@ -23,6 +24,7 @@ app = FastAPI(title="个人知识库", lifespan=lifespan)
 app.include_router(auth_router)
 app.include_router(health_router)
 app.include_router(documents_router)
+app.include_router(search_router)
 
 
 @app.exception_handler(DocumentError)

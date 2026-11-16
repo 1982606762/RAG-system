@@ -8,9 +8,10 @@ type Props = {
   busy: boolean
   onRetry: () => void
   onClose: () => void
+  initialBlock?: number | null
 }
 
-export default function DocumentReader({ id, revision, busy, onRetry, onClose }: Props) {
+export default function DocumentReader({ id, revision, busy, onRetry, onClose, initialBlock = null }: Props) {
   const t = useT()
   const [document, setDocument] = useState<DocumentDetail | null>(null)
   const [tab, setTab] = useState<'extracted' | 'chunkView' | 'original'>('extracted')
@@ -21,7 +22,7 @@ export default function DocumentReader({ id, revision, busy, onRetry, onClose }:
   const [originalError, setOriginalError] = useState(false)
   const [originalAttempt, setOriginalAttempt] = useState(0)
   const [page, setPage] = useState(1)
-  const [sourceBlock, setSourceBlock] = useState<number | null>(null)
+  const [sourceBlock, setSourceBlock] = useState<number | null>(initialBlock)
   const [downloading, setDownloading] = useState(false)
   const root = useRef<HTMLElement>(null)
 
@@ -36,6 +37,11 @@ export default function DocumentReader({ id, revision, busy, onRetry, onClose }:
   }, [id, revision])
 
   useEffect(() => { root.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [])
+
+  useEffect(() => {
+    setSourceBlock(initialBlock)
+    if (initialBlock !== null) setTab('extracted')
+  }, [initialBlock, revision])
 
   useEffect(() => {
     if (tab !== 'original' || !document) return
@@ -62,7 +68,7 @@ export default function DocumentReader({ id, revision, busy, onRetry, onClose }:
     if (tab === 'extracted' && sourceBlock !== null) {
       globalThis.document.getElementById(`block-${id}-${sourceBlock}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
-  }, [tab, sourceBlock, id])
+  }, [tab, sourceBlock, id, loading, document])
 
   async function download() {
     if (!document) return

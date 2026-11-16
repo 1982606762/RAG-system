@@ -3,6 +3,7 @@ import axios from 'axios'
 import { DocumentRecord, listDocuments, retryDocument, uploadDocument } from '../api'
 import { useT } from '../i18n'
 import DocumentReader from '../components/DocumentReader'
+import SearchPanel from '../components/SearchPanel'
 
 export default function WorkspacePage() {
   const t = useT()
@@ -10,6 +11,7 @@ export default function WorkspacePage() {
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
   const [selected, setSelected] = useState<string | null>(null)
+  const [sourceBlock, setSourceBlock] = useState<number | null>(null)
   const [revision, setRevision] = useState(0)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -48,6 +50,7 @@ export default function WorkspacePage() {
     try {
       const { data } = await uploadDocument(file, setProgress)
       setSelected(data.document.id)
+      setSourceBlock(null)
       setRevision(value => value + 1)
       setNotice(data.duplicate ? 'duplicate' : data.document.status === 'ready' ? 'uploaded' : 'uploadFailed')
       await refresh()
@@ -102,13 +105,16 @@ export default function WorkspacePage() {
       </section>
       {error && <div className="feedback error" role="alert">{errorKey ? t(errorKey) : error}</div>}
       {notice && <div className="feedback" role="status">{t(notice)}</div>}
+      <SearchPanel onSelect={(id, block) => {
+        setSelected(id); setSourceBlock(block); setRevision(value => value + 1)
+      }} />
       <section className="library-panel" aria-label={t('library')}>
         <div className="panel-heading"><h2>{t('library')}</h2><button disabled={loading} onClick={() => { void refresh(); setRevision(v => v + 1) }}>{t('refresh')}</button></div>
         {loading && documents.length === 0 ? <p className="empty-state" role="status">{t('loadingDocument')}</p>
           : documents.length === 0 ? <div className="empty-state"><h2>{t('emptyLibrary')}</h2><p>{t('emptyHint')}</p></div>
           : <div className="table-scroll"><table className="document-table"><thead><tr><th>{t('filename')}</th><th>{t('status')}</th><th>{t('chunks')}</th><th>{t('size')}</th></tr></thead><tbody>
             {documents.map(doc => <tr key={doc.id} className={selected === doc.id ? 'selected' : ''}>
-              <td><button className="document-name" aria-pressed={selected === doc.id} onClick={() => { setSelected(doc.id); setRevision(v => v + 1) }}>
+              <td><button className="document-name" aria-pressed={selected === doc.id} onClick={() => { setSelected(doc.id); setSourceBlock(null); setRevision(v => v + 1) }}>
                 <span className="file-type">{doc.extension.slice(1).toUpperCase()}</span><span>{doc.filename}</span></button></td>
               <td><span className={`status-pill ${doc.status}`}>{t(doc.status === 'processing' ? 'working' : doc.status)}</span></td>
               <td>{doc.chunk_count}</td><td className="muted">{doc.size_bytes < 1024 * 1024 ? `${Math.ceil(doc.size_bytes / 1024)} KB` : `${(doc.size_bytes / 1024 / 1024).toFixed(1)} MB`}</td>
@@ -119,6 +125,7 @@ export default function WorkspacePage() {
           <button disabled={offset + 30 >= total || loading} onClick={() => setOffset(v => v + 30)}>{t('next')}</button></div>}
       </section>
       {selected && <DocumentReader key={selected} id={selected} revision={revision} busy={busy}
+        initialBlock={sourceBlock}
         onRetry={() => void retry(selected)} onClose={() => setSelected(null)} />}
     </>
   )

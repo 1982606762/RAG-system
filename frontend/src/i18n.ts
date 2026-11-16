@@ -12,6 +12,14 @@ export const useLang = create<{ lang: Lang; toggle: () => void }>((set, get) => 
 }))
 
 const zh = {
+  search: '搜索资料',
+  searchAction: '搜索',
+  searchHint: '输入中文或英文关键词',
+  searchScope: '搜索已处理资料的正文；空格分隔的关键词需全部匹配，最多 10 个。',
+  searching: '正在搜索…',
+  searchError: '搜索未完成，请检查关键词数量并重试。',
+  searchResults: '搜索结果',
+  noResults: '没有找到匹配的片段。试试更短的关键词。',
   brand: '个人知识库',
   private: '私人空间',
   loginTitle: '进入知识库',
@@ -86,12 +94,20 @@ const zh = {
   fileTooLarge: '文件不能超过 20 MiB。',
   busy: '已有文件正在处理，请稍后重试。',
   schemaMissing: '文档数据库尚未初始化，请按部署文档运行 init-db。',
-  localProcessing: '文件在服务端本地解析，不调用云端 AI。',
+  localProcessing: '解析完成后可搜索正文并查看来源。',
   selectDocument: '选择文件查看详情',
 }
 
 type Key = keyof typeof zh
 const en: Record<Key, string> = {
+  search: 'Search documents',
+  searchAction: 'Search',
+  searchHint: 'Enter Chinese or English keywords',
+  searchScope: 'Search completed documents. All space-separated keywords must match; up to 10 keywords.',
+  searching: 'Searching…',
+  searchError: 'Search failed. Check the number of keywords and try again.',
+  searchResults: 'Results for',
+  noResults: 'No matching chunks. Try shorter keywords.',
   brand: 'Personal Knowledge Base',
   private: 'Private workspace',
   loginTitle: 'Enter your knowledge base',
@@ -166,7 +182,7 @@ const en: Record<Key, string> = {
   fileTooLarge: 'The file must be no larger than 20 MiB.',
   busy: 'Another document is being processed. Please try again later.',
   schemaMissing: 'Initialize the document database with init-db, as described in the deployment guide.',
-  localProcessing: 'Files are processed locally on the server, without cloud AI calls.',
+  localProcessing: 'Search the text and inspect sources after processing completes.',
   selectDocument: 'Select a document to inspect it',
 }
 

@@ -87,13 +87,25 @@ class ShellTests(unittest.TestCase):
             ("POST", "/api/auth/register"), ("GET", "/api/auth/config"),
             ("POST", "/api/upload"),
             ("POST", "/api/upload_async"), ("GET", "/api/tasks/old-task"),
-            ("POST", "/api/search"), ("POST", "/api/ask"),
+            ("POST", "/api/ask"),
             ("GET", "/api/conversations"), ("GET", "/api/traces"),
             ("GET", "/api/models"),
         ]
         for method, path in routes:
             with self.subTest(path=path):
                 self.assertEqual(self.client.request(method, path).status_code, 404)
+
+    def test_search_authentication_validation_and_method(self):
+        self.assertEqual(self.client.get('/api/search?q=test').status_code, 401)
+        token = self.client.post('/api/auth/login', json={'password': PASSWORD}).json()['access_token']
+        headers = {'Authorization': f'Bearer {token}'}
+        for query in ('', '  ', '\x00', ' '.join(str(i) for i in range(11)), 'a' * 201):
+            self.assertEqual(self.client.get('/api/search', params={'q': query}, headers=headers).status_code, 422)
+        with patch('db.documents.search_chunks', return_value={'items': [], 'has_more': False}) as search:
+            response = self.client.get('/api/search', params={'q': '滤网 filter'}, headers=headers)
+            self.assertEqual(response.status_code, 200)
+            search.assert_called_once_with('滤网 filter', 30, 0)
+        self.assertEqual(self.client.post('/api/search', headers=headers).status_code, 405)
 
     def test_health_reports_readiness_with_http_status(self):
         with patch("api.health.check_database"):

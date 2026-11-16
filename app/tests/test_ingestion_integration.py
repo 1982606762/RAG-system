@@ -93,6 +93,32 @@ class IngestionIntegrationTests(unittest.TestCase):
         self.assertEqual(first['document']['id'], second['document']['id'])
         self.assertEqual(len(list(self.directory.iterdir())), 1)
 
+    def test_search_literals_sources_pagination_and_ready_only(self):
+        marker = str(uuid4())
+        doc = self.upload(content=f'{marker} 每月清洁滤网 FILTER 100% a_b'.encode()).json()['document']
+        def search(query, **params):
+            response = self.client.get('/api/search', headers=self.headers, params={'q': query, **params})
+            self.assertEqual(response.status_code, 200, response.text)
+            return response.json()
+        for term in ('滤网 filter', '100%', 'a_b'):
+            result = search(f'{marker} {term}')
+            self.assertEqual(result['items'][0]['document_id'], doc['id'])
+            self.assertTrue(result['items'][0]['chunk']['sources'])
+        self.assertFalse(search(f'{marker} absent')['items'])
+        self.assertFalse(search(f"{marker} ' OR 1=1")['items'])
+        self.assertFalse(search(marker, offset=1)['items'])
+        other = self.upload(content=f'{marker} Second file'.encode()).json()['document']
+        first_page = search(marker, limit=1)
+        second_page = search(marker, limit=1, offset=1)
+        self.assertTrue(first_page['has_more'])
+        self.assertFalse(second_page['has_more'])
+        self.assertEqual({first_page['items'][0]['document_id'], second_page['items'][0]['document_id']},
+                         {doc['id'], other['id']})
+        for status in ('processing', 'failed'):
+            with store.connect() as conn:
+                conn.execute('UPDATE knowledge_base_v1.documents SET status=%s WHERE id=%s', (status, doc['id']))
+            self.assertEqual([hit['document_id'] for hit in search(marker)['items']], [other['id']])
+
     def test_invalid_pdf_preserves_original_and_failure(self):
         content = f'not a PDF {uuid4()}'.encode()
         doc = self.upload('broken.pdf', content).json()['document']

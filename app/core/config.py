@@ -17,6 +17,7 @@ DOCUMENTS_DIR = Path(os.getenv("DOCUMENTS_DIR", str(Path(__file__).resolve().par
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 MAX_PDF_PAGES = 50
 PROCESSING_TIMEOUT_SECONDS = 120
+GOOGLE_DOCUMENT_AI_PROCESSOR = os.getenv("GOOGLE_DOCUMENT_AI_PROCESSOR", "").strip()
 OCR_LANGUAGES = os.getenv("OCR_LANGUAGES", "eng+dan+chi_sim")
 
 

@@ -6,3 +6,4 @@ pyjwt
 python-multipart>=0.0.22,<0.1
 pdfplumber>=0.11.9,<0.12
 pytesseract>=0.3.13,<0.4
+google-cloud-documentai>=3,<4

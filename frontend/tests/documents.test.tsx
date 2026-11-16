@@ -4,11 +4,11 @@ import userEvent from '@testing-library/user-event'
 import WorkspacePage from '../src/pages/WorkspacePage'
 import DocumentReader from '../src/components/DocumentReader'
 import { useLang } from '../src/i18n'
-import { getDocument, getOriginal, listDocuments, uploadDocument, type DocumentDetail } from '../src/api'
+import { getDocument, getOriginal, listDocuments, searchDocuments, uploadDocument, type DocumentDetail } from '../src/api'
 
 vi.mock('../src/api', () => ({
   getDocument: vi.fn(), getOriginal: vi.fn(), listDocuments: vi.fn(),
-  retryDocument: vi.fn(), uploadDocument: vi.fn(),
+  retryDocument: vi.fn(), uploadDocument: vi.fn(), searchDocuments: vi.fn(),
 }))
 
 const document: DocumentDetail = {
@@ -34,6 +34,35 @@ beforeEach(() => {
 })
 
 describe('Document workspace', () => {
+  it('ignores an older search response after a new search completes', async () => {
+    let finishOld!: (value: unknown) => void
+    vi.mocked(searchDocuments).mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve }) as never)
+      .mockResolvedValueOnce({ data: { items: [], has_more: false } } as never)
+    render(<WorkspacePage />)
+    const input = screen.getByRole('searchbox')
+    await userEvent.type(input, 'old')
+    await userEvent.click(screen.getByRole('button', { name: '搜索', exact: true }))
+    await userEvent.clear(input)
+    await userEvent.type(input, 'new')
+    await userEvent.click(screen.getByRole('button', { name: '搜索', exact: true }))
+    await screen.findByText('没有找到匹配的片段。试试更短的关键词。')
+    finishOld({ data: { items: [{ document_id: document.id, filename: document.filename,
+      chunk_index: 0, chunk: document.chunks[0] }], has_more: false } })
+    await waitFor(() => expect(screen.queryByText('manual.md')).not.toBeInTheDocument())
+    expect(screen.getByText('搜索结果 «new»')).toBeVisible()
+  })
+
+  it('searches chunks and opens the selected source after the document loads', async () => {
+    vi.mocked(searchDocuments).mockResolvedValue({ data: { items: [{ document_id: document.id,
+      filename: document.filename, chunk_index: 0, chunk: document.chunks[0] }], has_more: false } } as never)
+    const { container } = render(<WorkspacePage />)
+    await userEvent.type(screen.getByRole('searchbox'), '滤网')
+    await userEvent.click(screen.getByRole('button', { name: '搜索', exact: true }))
+    await userEvent.click(await screen.findByRole('button', { name: '查看来源 · 内容块 2' }))
+    await waitFor(() => expect(container.querySelector('.highlighted')).toHaveTextContent('每月清洁滤网'))
+    expect(searchDocuments).toHaveBeenCalledWith('滤网', 0, expect.any(AbortSignal))
+  })
+
   it('uploads a file, waits for processing, then opens the returned document', async () => {
     let complete!: (value: unknown) => void
     vi.mocked(uploadDocument).mockImplementation((file, progress) => {

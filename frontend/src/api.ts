@@ -67,6 +67,18 @@ export interface DocumentDetail extends DocumentRecord {
   chunks: Chunk[]
 }
 
+export interface SearchHit {
+  document_id: string
+  filename: string
+  chunk_index: number
+  chunk: Chunk
+}
+
+export const searchDocuments = (q: string, offset: number, signal: AbortSignal) =>
+  http.get<{ items: SearchHit[]; has_more: boolean }>('/api/search', {
+    params: { q, offset, limit: 30 }, signal,
+  })
+
 export const listDocuments = (offset = 0) => http.get<{ items: DocumentRecord[]; total: number }>(
   '/api/documents', { params: { limit: 30, offset } },
 )

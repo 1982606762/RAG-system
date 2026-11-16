@@ -1,4 +1,4 @@
-"""Local text/PDF extraction and bounded, sequential Tesseract OCR."""
+"""Local text/PDF extraction and bounded, sequential OCR."""
 
 from collections import defaultdict
 from pathlib import Path
@@ -84,13 +84,14 @@ def parse_text(path: Path, markdown: bool) -> ParsedDocument:
 
 
 def ocr_image(image, page: int, deadline: float, blocks: list[Block], warnings: list[str]):
-    import pytesseract
     from PIL import ImageOps
 
     if image.width * image.height > MAX_IMAGE_PIXELS:
         raise DocumentError("image_too_large", "图片像素过大，请缩小后重试。")
+    image = ImageOps.exif_transpose(image).convert("RGB")
+    import pytesseract
+
     try:
-        image = ImageOps.exif_transpose(image).convert("RGB")
         data = pytesseract.image_to_data(
             image, lang=config.OCR_LANGUAGES, output_type=pytesseract.Output.DICT,
             timeout=min(45, check_deadline(deadline)),
@@ -199,6 +200,9 @@ def parse_pdf(path: Path, deadline: float) -> ParsedDocument:
 
 def parse_document(path: Path, extension: str) -> ParsedDocument:
     deadline = time.monotonic() + config.PROCESSING_TIMEOUT_SECONDS
+    if config.GOOGLE_DOCUMENT_AI_PROCESSOR:
+        from documents.google_ocr import parse_google_document
+        return parse_google_document(path, extension, deadline)
     if extension in (".txt", ".md"):
         result = parse_text(path, extension == ".md")
     elif extension == ".pdf":

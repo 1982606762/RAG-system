@@ -27,7 +27,10 @@ def process(conn, document_id, path, extension):
     try:
         store.set_stage(conn, document_id, "parsing")
         parsed = parse_document(path, extension)
-        store.save_blocks(conn, document_id, parsed, PARSER_VERSION)
+        parser_version = PARSER_VERSION
+        if config.GOOGLE_DOCUMENT_AI_PROCESSOR:
+            parser_version = "google-layout-v1"
+        store.save_blocks(conn, document_id, parsed, parser_version)
         chunks = chunk_blocks(parsed.blocks)
         store.save_chunks(conn, document_id, chunks, CHUNKER_VERSION,
                           {"unit": "unicode_characters", "target": TARGET_CHARS,

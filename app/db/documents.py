@@ -61,6 +61,28 @@ def list_documents(limit: int, offset: int):
         return {"items": rows, "total": total}
 
 
+def search_chunks(query: str, limit: int, offset: int):
+    query = query.strip()
+    terms = list(dict.fromkeys(query.split()))
+    if not terms or len(terms) > 10 or '\x00' in query:
+        raise DocumentError("invalid_query", "请输入 1–10 个以空格分隔的关键词。", 422)
+    # Literal substring matching supports Chinese and treats %, _ and SQL text as data.
+    # Only completed documents are visible, including while another document is retried.
+    with connect() as conn:
+        rows = conn.execute("""SELECT d.id AS document_id, d.filename,
+                c.chunk_index, c.data AS chunk
+            FROM knowledge_base_v1.chunks c
+            JOIN knowledge_base_v1.documents d ON d.id=c.document_id
+            WHERE d.status='ready' AND NOT EXISTS (
+                SELECT 1 FROM unnest(%s::text[]) AS terms(term)
+                WHERE strpos(lower(c.data->>'text'), lower(term))=0
+            )
+            ORDER BY (strpos(lower(c.data->>'text'), lower(%s)) > 0) DESC,
+                d.created_at DESC, d.id, c.chunk_index
+            LIMIT %s OFFSET %s""", (terms, query, limit + 1, offset)).fetchall()
+    return {"items": rows[:limit], "has_more": len(rows) > limit}
+
+
 def get_document(conn, document_id):
     row = conn.execute("SELECT * FROM knowledge_base_v1.documents WHERE id=%s", (document_id,)).fetchone()
     if row is None:
