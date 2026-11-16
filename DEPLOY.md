@@ -1,5 +1,25 @@
 # 运行文档 MVP
 
+当前公网入口为 https://rag.xuanlang.dev 。Caddy 通过 Docker 网络转发至 `frontend:80`，
+自动签发和续期 HTTPS 证书，并将 HTTP 重定向至 HTTPS。
+前端的 8001 端口仅绑定服务器 loopback，供本机检查使用。
+
+应用启动后运行独立代理（应用 Compose 项目名为 `rag-system`）：
+
+```bash
+docker compose -f deploy/proxy/compose.yml up -d
+curl --fail https://rag.xuanlang.dev/api/health
+```
+
+代理连接已有的 `rag-system_default` 网络。证书及 ACME 账户保存在
+`rag-proxy_caddy_data` 卷中，应持久保留。服务器需对外开放 TCP 80/443，
+HTTP/3 使用 UDP 443。修改 Caddyfile 后可校验并平滑加载：
+
+```bash
+docker compose -f deploy/proxy/compose.yml exec caddy caddy validate --config /etc/caddy/Caddyfile
+docker compose -f deploy/proxy/compose.yml exec caddy caddy reload --config /etc/caddy/Caddyfile
+```
+
 当前提供登录、文档上传、解析、分块、原件与结果查看。不包含搜索或 AI 问答。
 Docker Compose 的前端与 API 共用 `http://localhost:8001`，生产 OCR 依赖已安装在后端镜像内。
 
