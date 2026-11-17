@@ -62,7 +62,12 @@ changed=1
 docker exec rag-system-postgres-1 pg_dump -U postgres -d ragdb -Fc > "$backup/database.dump"
 test -s "$backup/database.dump"
 docker exec -i rag-system-postgres-1 pg_restore --list < "$backup/database.dump" > "$backup/database-contents.txt"
-tar -czf "$backup/files.tar.gz" -C "$root" files
+# Uploaded originals are private 0600 files owned by the app container's UID.
+# Read them through a read-only bind without changing original permissions.
+docker run --rm --network none --read-only --user 0:0 \
+  --mount "type=bind,source=$root/files,target=/backup-source/files,readonly" \
+  --entrypoint tar "rag-rollback-app:${revision:0:12}" \
+  -czf - -C /backup-source files > "$backup/files.tar.gz"
 tar -tzf "$backup/files.tar.gz" > "$backup/files-contents.txt"
 mkdir -p "$root/files/mvp"
 "${compose[@]}" run --rm --no-deps app python cli.py init-db

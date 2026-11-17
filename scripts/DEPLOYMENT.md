@@ -6,7 +6,7 @@ GitHub Actions transfers the exact tested commit to `$DEPLOY_PATH/.releases/<com
 
 The initial owner password is generated outside git; only its bcrypt verifier is stored in `bootstrap-owner.hash`. Subsequent releases preserve the configured owner hash. A weak legacy JWT secret is rotated on the server. Neither environment values nor passwords are printed in deployment logs.
 
-Images build before stopping the old app. A timestamped private `.backups` directory holds resolved rollback configuration, frozen image tags, original environment, git diff, verified PostgreSQL dump and original-file archive. Database migration creates only the additive `knowledge_base_v1` namespace. Legacy records are retained but are not imported into the MVP interface.
+Images build before stopping the old app. A timestamped private `.backups` directory holds resolved rollback configuration, frozen image tags, original environment, git diff, verified PostgreSQL dump and original-file archive. Original files are read through a read-only bind in a temporary container so root-owned 0600 uploads can be backed up without changing their permissions. Database migration creates only the additive `knowledge_base_v1` namespace. Legacy records are retained but are not imported into the MVP interface.
 
 After cutover, checks exercise authentication enforcement, upload, parsing, chunks, byte-exact original download and public HTTPS health. The unique test document is removed. Any failure after stopping the old application restores its frozen application images and configuration. Redis and Chroma are stopped after success; their containers and data volumes are retained. No image or volume pruning is performed.
 
