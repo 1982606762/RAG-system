@@ -18,7 +18,10 @@
   空格分隔的关键词需全部出现在同一片段，最多 10 个、总长 200 字符。
   完整查询连续出现的片段优先，其余按资料时间和片段位置排序，可分页查看并定位来源。
 
-**尚未实现**：embedding、pgvector、语义搜索、AI 问答、会话、cardless 集成和自动重试。
+- 已实现 Vertex AI embedding 与 pgvector 入库、独立向量进度、手动继续和旧片段补算。
+  配置 Google 项目和调用权限后，新上传会自动尝试生成向量；失败不影响原件阅读和关键词搜索。
+
+**尚未实现**：语义搜索、AI 问答、会话、cardless 集成和自动重试。
 `ready` 目前表示解析和分块完成，不表示已有检索索引。
 `GET /api/search?q=滤网&limit=30&offset=0` 使用 owner JWT，返回片段和来源。
 关键词搜索直接查询现有片段，无需重传旧资料或新增索引。当前采用扫描匹配，适合个人小规模资料库。
@@ -80,6 +83,7 @@ npm run build
 完整测试方式、已知限制和本次改动文件见 [docs/MVP.md](docs/MVP.md)。
 第一版交付范围、架构、实施顺序和验收场景见 [个人文件 RAG 第一版设计](docs/RAG_V1.md)。
 第一阶段已交付的原件定位、坐标约定与验证记录见 [原文定位](docs/ORIGINAL_LOCATIONS.md)。
+第二阶段的配置、状态、回填和云端验收边界见 [向量入库](docs/EMBEDDINGS.md)。
 重建背景见 [docs/REBUILD.md](docs/REBUILD.md)；旧版清理记录见 [docs/CLEANUP.md](docs/CLEANUP.md)。
 历史 `CLAUDE.md` 中的 Chroma/财务提取架构已过时，以这里和实际代码为准。
 

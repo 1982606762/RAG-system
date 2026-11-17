@@ -42,6 +42,18 @@ export interface DocumentRecord {
   parser_version: string | null
   chunker_version: string | null
   chunk_config: { unit?: string; target?: number; maximum?: number; overlap?: number }
+  embedding?: EmbeddingStatus
+}
+
+export interface EmbeddingStatus {
+  status: 'disabled' | 'pending' | 'processing' | 'ready' | 'failed'
+  model: string | null
+  dimensions: number
+  completed_chunks: number
+  total_chunks: number
+  vector_count: number
+  error_code: string | null
+  error_message: string | null
 }
 
 export interface ContentBlock {
@@ -91,6 +103,7 @@ export const listDocuments = (offset = 0) => http.get<{ items: DocumentRecord[];
 )
 export const getDocument = (id: string, signal?: AbortSignal) => http.get<DocumentDetail>(`/api/documents/${id}`, { signal })
 export const retryDocument = (id: string) => http.post<DocumentRecord>(`/api/documents/${id}/retry`, {}, { timeout: 155000 })
+export const createEmbeddings = (id: string) => http.post<DocumentRecord>(`/api/documents/${id}/embeddings`, {}, { timeout: 45000 })
 export const getOriginal = (id: string, signal?: AbortSignal) => http.get<Blob>(`/api/documents/${id}/original`, { responseType: 'blob', signal })
 export const getPagePreview = (id: string, page: number, signal?: AbortSignal) =>
   http.get<Blob>(`/api/documents/${id}/pages/${page}/preview`, { responseType: 'blob', signal, timeout: 35000 })

@@ -41,7 +41,14 @@ def process(conn, document_id, path, extension):
         logger.exception("Document processing failed: %s", document_id)
         store.set_failed(conn, document_id, DocumentError(
             "processing_failed", "文件处理失败。请检查文件是否损坏、加密或格式异常后重试。"))
-    return store.get_document(conn, document_id)
+    # Parsing readiness is committed before any model request. Index errors
+    # have their own persisted state and never turn readable documents failed.
+    document = store.get_document(conn, document_id)
+    from embeddings.provider import active_profile
+    if document['status'] == 'ready' and active_profile() is not None:
+        from embeddings.service import index_document
+        return index_document(conn, document_id)
+    return document
 
 
 def upload_document(upload):

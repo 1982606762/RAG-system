@@ -12,6 +12,19 @@ export const useLang = create<{ lang: Lang; toggle: () => void }>((set, get) => 
 }))
 
 const zh = {
+  embeddingTitle: '向量索引',
+  embeddingDisabled: '向量未配置',
+  embeddingPending: '向量待生成',
+  embeddingProcessing: '正在生成向量…',
+  embeddingReady: '向量已就绪',
+  embeddingFailed: '向量未完成',
+  embeddingChunks: '个片段已完成',
+  embeddingVectors: '个向量',
+  embeddingReadingHint: '向量状态不影响原件阅读和关键词搜索。语义搜索将在下一阶段开放。',
+  embeddingWaitForDocument: '请先完成文档解析和分块，再生成向量。',
+  embeddingGenerate: '生成 / 继续向量化',
+  embeddingCheck: '检查向量完整性',
+  embeddingRequestError: '请求未完成，请刷新状态后重试。服务可能仍在处理。',
   search: '搜索资料',
   searchAction: '搜索',
   searchHint: '输入中文或英文关键词',
@@ -106,6 +119,19 @@ const zh = {
 
 type Key = keyof typeof zh
 const en: Record<Key, string> = {
+  embeddingTitle: 'Vector index',
+  embeddingDisabled: 'Vectors not configured',
+  embeddingPending: 'Vectors pending',
+  embeddingProcessing: 'Generating vectors…',
+  embeddingReady: 'Vectors ready',
+  embeddingFailed: 'Vectors incomplete',
+  embeddingChunks: 'chunks completed',
+  embeddingVectors: 'vectors',
+  embeddingReadingHint: 'Reading and keyword search remain available. Semantic search will follow in the next stage.',
+  embeddingWaitForDocument: 'Finish document parsing and splitting before generating vectors.',
+  embeddingGenerate: 'Generate / resume vectors',
+  embeddingCheck: 'Check vector completeness',
+  embeddingRequestError: 'The request did not finish. Refresh the status before retrying; processing may still be running.',
   search: 'Search documents',
   searchAction: 'Search',
   searchHint: 'Enter Chinese or English keywords',

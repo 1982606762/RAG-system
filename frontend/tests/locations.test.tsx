@@ -6,7 +6,7 @@ import OriginalText from '../src/components/OriginalText'
 import { getDocument, getOriginal, getPagePreview, type DocumentDetail, type SourceLocation } from '../src/api'
 import { useLang } from '../src/i18n'
 
-vi.mock('../src/api', () => ({ getDocument: vi.fn(), getOriginal: vi.fn(), getPagePreview: vi.fn() }))
+vi.mock('../src/api', () => ({ getDocument: vi.fn(), getOriginal: vi.fn(), getPagePreview: vi.fn(), createEmbeddings: vi.fn() }))
 
 const text = '# 😀手册\r\n\r\n  清洁滤网。<script>bad()</script>  \r\n'
 const textLocation: SourceLocation = { type: 'text', start: 9, end: Array.from(text).length - 2, start_line: 3, end_line: 3 }

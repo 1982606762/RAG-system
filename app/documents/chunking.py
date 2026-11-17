@@ -1,7 +1,8 @@
 """Structure-first splitting with an explicit Unicode-character budget.
 
-No embedding model has been selected. Character counts are deliberately not
-reported as tokens. Source offsets always refer to the stored block text.
+Character counts are deliberately not reported as tokens. The embedding stage
+enforces its provider's token limit separately and retains child source spans.
+Source offsets always refer to the stored block text.
 """
 
 import re

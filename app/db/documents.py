@@ -20,13 +20,17 @@ def connect():
 
 def initialize():
     with connect() as conn, conn.transaction():
-        conn.execute(Path(__file__).with_name("migrations").joinpath("001_documents.sql").read_text())
+        for path in sorted(Path(__file__).with_name("migrations").glob("*.sql")):
+            conn.execute(path.read_text())
 
 
 def _recover(conn):
     conn.execute("""UPDATE knowledge_base_v1.documents
         SET status='failed', error_code='interrupted',
             error_message='上次处理已中断，请手动重试。', updated_at=now()
+        WHERE status='processing'""")
+    conn.execute("""UPDATE knowledge_base_v1.embedding_runs SET status='failed',
+        error_code='embedding_interrupted',error_message='上次向量化已中断，可继续处理已保存的进度。',updated_at=now()
         WHERE status='processing'""")
 
 
@@ -58,6 +62,8 @@ def list_documents(limit: int, offset: int):
         rows = conn.execute("""SELECT * FROM knowledge_base_v1.documents
             ORDER BY created_at DESC, id DESC LIMIT %s OFFSET %s""", (limit, offset)).fetchall()
         total = conn.execute("SELECT count(*) AS total FROM knowledge_base_v1.documents").fetchone()["total"]
+        from db.embeddings import attach_status
+        attach_status(conn, rows)
         return {"items": rows, "total": total}
 
 
@@ -87,7 +93,15 @@ def get_document(conn, document_id):
     row = conn.execute("SELECT * FROM knowledge_base_v1.documents WHERE id=%s", (document_id,)).fetchone()
     if row is None:
         raise DocumentError("not_found", "找不到这份文件。", 404)
+    from db.embeddings import attach_status
+    attach_status(conn, [row])
     return row
+
+
+def invalidate_embeddings(conn, document_id, total=0):
+    conn.execute("""UPDATE knowledge_base_v1.embedding_runs SET status='pending',completed_chunks=0,
+        total_chunks=%s,vector_count=0,error_code=NULL,error_message=NULL,updated_at=now()
+        WHERE document_id=%s""", (total, document_id))
 
 
 def get_detail(document_id):
@@ -126,6 +140,7 @@ def set_failed(conn, document_id, error):
 def save_blocks(conn, document_id, parsed, parser_version):
     with conn.transaction():
         conn.execute("DELETE FROM knowledge_base_v1.chunks WHERE document_id=%s", (document_id,))
+        invalidate_embeddings(conn, document_id)
         conn.execute("DELETE FROM knowledge_base_v1.blocks WHERE document_id=%s", (document_id,))
         with conn.cursor() as cursor:
             cursor.executemany("INSERT INTO knowledge_base_v1.blocks VALUES (%s,%s,%s)",
@@ -138,6 +153,7 @@ def save_blocks(conn, document_id, parsed, parser_version):
 def save_chunks(conn, document_id, chunks, chunker_version, chunk_config):
     with conn.transaction():
         conn.execute("DELETE FROM knowledge_base_v1.chunks WHERE document_id=%s", (document_id,))
+        invalidate_embeddings(conn, document_id, len(chunks))
         with conn.cursor() as cursor:
             cursor.executemany("INSERT INTO knowledge_base_v1.chunks VALUES (%s,%s,%s)",
                                [(document_id, chunk.index, Jsonb(chunk.to_dict())) for chunk in chunks])
@@ -153,6 +169,7 @@ def begin_retry(conn, document_id):
         raise DocumentError("not_failed", "只有处理失败的文件需要重试。", 409)
     with conn.transaction():
         conn.execute("DELETE FROM knowledge_base_v1.chunks WHERE document_id=%s", (document_id,))
+        invalidate_embeddings(conn, document_id)
         conn.execute("DELETE FROM knowledge_base_v1.blocks WHERE document_id=%s", (document_id,))
         conn.execute("""UPDATE knowledge_base_v1.documents SET status='processing',stage='saved',
             error_code=NULL,error_message=NULL,block_count=0,chunk_count=0,page_count=NULL,

@@ -104,7 +104,10 @@ targets = {volume['target'] for volume in new['services']['app']['volumes']}
 new['services']['app']['volumes'].extend(
     volume for volume in old['services']['app'].get('volumes', []) if volume['target'] not in targets
 )
-# Production reuses the running database and does not recreate it.
+# Keep PG16's exact storage, credentials and network configuration. Only the
+# image changes to install pgvector; deploy-server backs up before recreation.
+database_service['image'] = new['services']['postgres']['image']
+assert re.fullmatch(r'pgvector/pgvector:[A-Za-z0-9.-]+-pg16-trixie', database_service['image'])
 new['services']['postgres'] = database_service
 new['volumes'] = old.get('volumes', {})
 path = release / 'production.json'

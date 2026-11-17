@@ -39,8 +39,10 @@ with sync_playwright() as playwright:
     assert upload.value.status == 200
     doc = upload.value.json()['document']
     assert doc['status'] == 'ready', doc
+    assert doc['embedding']['status'] == 'disabled', doc
     expect(page.locator('.reader h2')).to_have_text(name)
     expect(page.locator('.reader')).to_contain_text('保养周期')
+    expect(page.locator('.embedding-panel')).to_contain_text('向量未配置')
     page.get_by_role('button', name='分块结果', exact=True).click()
     expect(page.locator('.chunk-card').first).to_be_visible()
     page.screenshot(path=str(output / 'desktop-chunks.png'), full_page=True)

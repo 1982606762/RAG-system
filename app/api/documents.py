@@ -37,6 +37,12 @@ def retry(document_id: UUID):
     return retry_document(document_id)
 
 
+@router.post("/{document_id}/embeddings")
+def embeddings(document_id: UUID):
+    from embeddings.service import retry_embeddings
+    return retry_embeddings(document_id)
+
+
 @router.get("/{document_id}/original")
 def original(document_id: UUID):
     with store.connect() as conn:

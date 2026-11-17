@@ -8,7 +8,7 @@ import { getDocument, getOriginal, getPagePreview, listDocuments, searchDocument
 
 vi.mock('../src/api', () => ({
   getDocument: vi.fn(), getOriginal: vi.fn(), getPagePreview: vi.fn(), listDocuments: vi.fn(),
-  retryDocument: vi.fn(), uploadDocument: vi.fn(), searchDocuments: vi.fn(),
+  retryDocument: vi.fn(), uploadDocument: vi.fn(), searchDocuments: vi.fn(), createEmbeddings: vi.fn(),
 }))
 
 const document: DocumentDetail = {

@@ -86,6 +86,8 @@ docker compose stop celery_worker redis chroma
 | `GET /api/documents/{id}` | 文档信息、内容块、片段及来源 |
 | `GET /api/documents/{id}/original` | 带认证的原件下载 |
 | `POST /api/documents/{id}/retry` | 手动重试失败文件 |
+| `POST /api/documents/{id}/embeddings` | 为现有片段生成/继续向量，无需重解析 |
+| `GET /api/documents/{id}/pages/{page}/preview` | 带认证的 PDF 页面预览 |
 
 上传成功接收后返回 `{document, duplicate}`，包括处理失败但已保存原件的情况；前端必须检查 `document.status`。
 重复内容返回原记录，不自动重试。参数错误、空文件、不支持类型、超限分别使用 4xx。
@@ -142,7 +144,10 @@ npm run dev
 - 公网使用前配置 HTTPS；仓库的 nginx 不终止 TLS。
 
 GitHub Actions 在 `main` push 后先运行完整测试，通过后自动部署同一个提交；也可以手动触发。
-部署保留现有数据库、HTTPS 路由、主人凭据和 Google ADC 挂载，先备份，再切换，失败回滚。
+部署保留数据库卷、HTTPS 路由、主人凭据和 Google ADC 挂载，先备份，再切换，失败回滚。
+向量阶段将 PostgreSQL 16 的镜像切换为同系列 Debian trixie 的 `pgvector/pgvector:0.8.7-pg16-trixie`，
+沿用原有 `pgdata`，启用 `vector` 扩展并创建派生索引表；不跨 PostgreSQL 主版本升级。
+Vertex 项目、IAM、旧资料补算及未启用 API 时的行为见 [向量入库](docs/EMBEDDINGS.md)。
 生产运维使用活动发布的 `production.json`，详见 [部署脚本说明](scripts/DEPLOYMENT.md)。
 测试工作流使用临时 PostgreSQL 与合成资料，不访问生产环境。
 

@@ -115,6 +115,12 @@ progress { accent-color: #284c70; }
 .page-preview { position: relative; width: min(100%, 1000px); margin: 16px auto; }
 .page-preview > img { display: block; width: 100%; height: auto; }
 .source-region { position: absolute; background: rgb(255 211 56 / 30%); border: 2px solid #a47700; pointer-events: none; scroll-margin-top: 30px; }
+.embedding-panel { margin: 0 24px 20px; padding: 16px; border: 1px solid #dfe5ec; border-radius: 8px; }
+.embedding-heading { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.embedding-panel p { margin: 8px 0; }
+.embedding-panel small { display: block; color: #596879; }
+.embedding-panel > button { margin-top: 12px; }
+.document-status { display: flex; flex-wrap: wrap; gap: 6px; }
 @media (max-width: 720px) {
   .topbar { padding: 16px; flex-wrap: wrap; }
   .content { padding: 28px 16px; }

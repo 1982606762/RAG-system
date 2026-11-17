@@ -41,15 +41,24 @@ compose=(docker compose --project-name rag-system --project-directory "$release"
 rollback=(docker compose --project-name rag-system --project-directory "$root" -f "$backup/rollback.json")
 read -r -a previous_services < "$backup/application-services"
 "${compose[@]}" config --quiet
+"${compose[@]}" pull postgres
 "${compose[@]}" build app frontend
 python3 "$release/scripts/verify-container-env.py"
 
 changed=0
+database_changed=0
+database_verified=0
 rollback_on_error() {
   result=$?
   trap - ERR
   if [[ "$changed" == 1 ]]; then
     echo 'Deployment failed; restoring previous application images.'
+    # Before the new database has passed readiness/extension checks, restore
+    # its old PG16 image too. After migrations, retain the healthy pgvector
+    # image so the newly created extension remains installed.
+    if [[ "$database_changed" == 1 && "$database_verified" == 0 ]]; then
+      "${rollback[@]}" up -d --no-deps --no-build postgres || true
+    fi
     "${rollback[@]}" up -d --no-deps --no-build "${previous_services[@]}" || true
   fi
   echo "Deployment failed with status $result; backup retained."
@@ -70,6 +79,19 @@ docker run --rm --network none --read-only --user 0:0 \
   -czf - -C /backup-source files > "$backup/files.tar.gz"
 tar -tzf "$backup/files.tar.gz" > "$backup/files-contents.txt"
 mkdir -p "$root/files/mvp"
+database_changed=1
+"${compose[@]}" up -d --no-deps --no-build postgres
+database_ready=0
+for attempt in $(seq 1 45); do
+  if docker exec rag-system-postgres-1 pg_isready -U postgres -d ragdb; then
+    database_ready=1
+    break
+  fi
+  sleep 2
+done
+test "$database_ready" = 1
+test "$(docker exec rag-system-postgres-1 psql -U postgres -d ragdb -tAc "SELECT count(*) FROM pg_available_extensions WHERE name='vector'")" = 1
+database_verified=1
 "${compose[@]}" run --rm --no-deps app python cli.py init-db
 "${compose[@]}" up -d --no-deps --no-build app frontend
 healthy=0

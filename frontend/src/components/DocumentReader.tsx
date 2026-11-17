@@ -3,6 +3,7 @@ import { ContentBlock, DocumentDetail, getDocument, getOriginal } from '../api'
 import { useT } from '../i18n'
 import OriginalText from './OriginalText'
 import PagePreview, { pageRegion, Region } from './PagePreview'
+import EmbeddingPanel from './EmbeddingPanel'
 
 type Props = {
   id: string
@@ -11,9 +12,10 @@ type Props = {
   onRetry: () => void
   onClose: () => void
   initialBlock?: number | null
+  onEmbeddingUpdated?: () => void
 }
 
-export default function DocumentReader({ id, revision, busy, onRetry, onClose, initialBlock = null }: Props) {
+export default function DocumentReader({ id, revision, busy, onRetry, onClose, initialBlock = null, onEmbeddingUpdated }: Props) {
   const t = useT()
   const [document, setDocument] = useState<DocumentDetail | null>(null)
   const [tab, setTab] = useState<'extracted' | 'chunkView' | 'original'>('extracted')
@@ -26,6 +28,7 @@ export default function DocumentReader({ id, revision, busy, onRetry, onClose, i
   const [page, setPage] = useState(1)
   const [sourceBlock, setSourceBlock] = useState<number | null>(initialBlock)
   const [downloading, setDownloading] = useState(false)
+  const [embeddingRevision, setEmbeddingRevision] = useState(0)
   const root = useRef<HTMLElement>(null)
 
   useEffect(() => {
@@ -36,7 +39,7 @@ export default function DocumentReader({ id, revision, busy, onRetry, onClose, i
       .catch(() => { if (!controller.signal.aborted) setFailed(true) })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [id, revision])
+  }, [id, revision, embeddingRevision])
 
   useEffect(() => { root.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [])
 
@@ -102,10 +105,11 @@ export default function DocumentReader({ id, revision, busy, onRetry, onClose, i
 
   return <section className="reader" ref={root} aria-label={document?.filename || t('loadingDocument')}>
     <div className="panel-heading"><h2>{document?.filename || t('loadingDocument')}</h2><button onClick={onClose}>{t('close')}</button></div>
-    {loading ? <p role="status">{t('loadingDocument')}</p> : failed || !document ? <p className="error" role="alert">{t('loadError')}</p> : <>
+    {loading && !document ? <p role="status">{t('loadingDocument')}</p> : failed || !document ? <p className="error" role="alert">{t('loadError')}</p> : <>
       <div className="reader-meta"><span>{document.block_count} {t('blocks')} · {document.chunk_count} {t('chunks')}</span>
         {document.page_count && <span>{document.page_count} {t('page')}</span>}
         <button disabled={downloading} onClick={() => void download()}>{t('download')}</button></div>
+      <EmbeddingPanel document={document} busy={busy} onUpdated={() => { setEmbeddingRevision(v => v + 1); onEmbeddingUpdated?.() }} />
       {document.status === 'failed' && <div className="feedback error" role="alert"><p>{document.error_message}</p>
         <small>{t('failedStage')}: {document.stage}</small> <button disabled={busy} onClick={onRetry}>{t('retryProcessing')}</button></div>}
       {document.status === 'processing' && <p role="status">{t('processing')}</p>}

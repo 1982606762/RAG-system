@@ -4,6 +4,7 @@ import { DocumentRecord, listDocuments, retryDocument, uploadDocument } from '..
 import { useT } from '../i18n'
 import DocumentReader from '../components/DocumentReader'
 import SearchPanel from '../components/SearchPanel'
+import { EmbeddingLabel } from '../components/EmbeddingPanel'
 
 export default function WorkspacePage() {
   const t = useT()
@@ -116,7 +117,8 @@ export default function WorkspacePage() {
             {documents.map(doc => <tr key={doc.id} className={selected === doc.id ? 'selected' : ''}>
               <td><button className="document-name" aria-pressed={selected === doc.id} onClick={() => { setSelected(doc.id); setSourceBlock(null); setRevision(v => v + 1) }}>
                 <span className="file-type">{doc.extension.slice(1).toUpperCase()}</span><span>{doc.filename}</span></button></td>
-              <td><span className={`status-pill ${doc.status}`}>{t(doc.status === 'processing' ? 'working' : doc.status)}</span></td>
+              <td><div className="document-status"><span className={`status-pill ${doc.status}`}>{t(doc.status === 'processing' ? 'working' : doc.status)}</span>
+                {doc.status === 'ready' && doc.embedding && <EmbeddingLabel status={doc.embedding.status} />}</div></td>
               <td>{doc.chunk_count}</td><td className="muted">{doc.size_bytes < 1024 * 1024 ? `${Math.ceil(doc.size_bytes / 1024)} KB` : `${(doc.size_bytes / 1024 / 1024).toFixed(1)} MB`}</td>
             </tr>)}
           </tbody></table></div>}
@@ -126,6 +128,7 @@ export default function WorkspacePage() {
       </section>
       {selected && <DocumentReader key={selected} id={selected} revision={revision} busy={busy}
         initialBlock={sourceBlock}
+        onEmbeddingUpdated={() => void refresh()}
         onRetry={() => void retry(selected)} onClose={() => setSelected(null)} />}
     </>
   )

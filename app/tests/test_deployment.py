@@ -36,6 +36,7 @@ class DeploymentPreparationTests(unittest.TestCase):
                    }}
             (backup / 'rollback.json').write_text(json.dumps(old))
             new = copy.deepcopy(old)
+            new['services']['postgres']['image'] = 'pgvector/pgvector:0.8.7-pg16-trixie'
             new['services']['app']['environment'] = {'OWNER_PASSWORD_HASH': 'stale', 'JWT_SECRET': 'stale'}
             new['services']['app']['volumes'] = [
                 {'type': 'bind', 'source': 'release/files/mvp', 'target': '/documents'},
@@ -64,7 +65,7 @@ class DeploymentPreparationTests(unittest.TestCase):
             config = json.loads((release / 'production.json').read_text())
             self.assertEqual(config['services']['frontend']['ports'], old['services']['frontend']['ports'])
             self.assertEqual(config['networks'], old['networks'])
-            self.assertEqual(config['services']['postgres'], old['services']['postgres'])
+            self.assertEqual(config['services']['postgres'], {**old['services']['postgres'], 'image': 'pgvector/pgvector:0.8.7-pg16-trixie'})
             app = config['services']['app']
             self.assertEqual(app['environment']['GOOGLE_APPLICATION_CREDENTIALS'], provider['GOOGLE_APPLICATION_CREDENTIALS'])
             self.assertEqual(app['environment']['OWNER_PASSWORD_HASH'], verifier.replace('$', '$$'))

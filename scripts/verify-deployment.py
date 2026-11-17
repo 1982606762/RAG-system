@@ -36,6 +36,14 @@ try:
     assert detail['status'] == 'ready', 'Document not ready'
     assert detail['blocks'] and detail['chunks'], 'Parsed content missing'
     assert detail['parser_version'] in ('local-blocks-v2', 'google-layout-v2'), 'Source mapping parser not deployed'
+    state = detail['embedding']
+    assert state['status'] in ('ready', 'failed', 'disabled'), 'New uploads did not complete their embedding attempt'
+    assert state['dimensions'] == 768
+    if state['status'] == 'failed':
+        assert state['error_code'] and state['error_message'], 'Embedding failure must be visible without failing the document'
+    with connect() as conn:
+        assert conn.execute("SELECT extversion FROM pg_extension WHERE extname='vector'").fetchone(), 'pgvector migration missing'
+    print('Embedding readiness:', state['status'], state.get('error_code') or '')
     query = urllib.parse.urlencode({'q': marker})
     with urllib.request.urlopen(urllib.request.Request(base + '/api/search?' + query, headers=headers)) as response:
         assert any(hit['document_id'] == document_id for hit in json.load(response)['items']), 'Search cannot find uploaded fixture'
@@ -47,7 +55,7 @@ try:
         assert error.code == 404 and json.load(error).get('code') == 'not_found', 'Page preview route not deployed'
     with urllib.request.urlopen(urllib.request.Request(base + '/api/documents/' + document_id + '/original', headers=headers)) as response:
         assert response.read() == payload
-    print('Verified: authentication, upload, source mapping parser, chunks, search, preview route and original download')
+    print('Verified: authentication, upload, source mapping, chunks, pgvector, embedding state, search, preview route and original download')
 finally:
     # The fixture is unique to this invocation; never delete user documents.
     from pathlib import Path

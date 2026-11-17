@@ -2,11 +2,14 @@
 
 import argparse
 import getpass
+from uuid import UUID
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="个人知识库基础工具")
-    parser.add_argument("command", choices=["hash-password", "healthcheck", "init-db"])
+    parser.add_argument("command", choices=["hash-password", "healthcheck", "init-db", "embed-documents", "check-embeddings"])
+    parser.add_argument("--document-id", type=UUID)
+    parser.add_argument("--limit", type=int, default=100)
     args = parser.parse_args()
 
     if args.command == "hash-password":
@@ -28,6 +31,31 @@ def main() -> int:
         initialize()
         print("Document schema: ready (knowledge_base_v1)")
         return 0
+
+    if args.command in ('embed-documents', 'check-embeddings'):
+        from documents.models import DocumentError
+        try:
+            if args.command == 'check-embeddings':
+                import time
+                from embeddings.provider import VertexEmbedder, active_profile
+                profile = active_profile()
+                if profile is None:
+                    raise DocumentError('embedding_not_configured', '请配置 VERTEX_EMBEDDING_PROJECT。')
+                with VertexEmbedder(profile, time.monotonic() + 30) as provider:
+                    vector, tokens = provider.embed('Document embedding availability check.')
+                print(f'Vertex embedding: OK ({len(vector)} dimensions, {tokens} tokens)')
+                return 0
+            if not 1 <= args.limit <= 10000:
+                parser.error('--limit must be between 1 and 10000')
+            from embeddings.service import backfill
+            results = backfill(args.limit, args.document_id)
+            for doc in results:
+                state = doc['embedding']
+                print(f"{doc['id']}: {state['status']} {state['completed_chunks']}/{state['total_chunks']} chunks, {state['vector_count']} vectors")
+            return int(any(doc['embedding']['status'] != 'ready' for doc in results))
+        except DocumentError as exc:
+            print(f'{exc.code}: {exc}')
+            return 1
 
     import psycopg
     from db.connection import check_database
