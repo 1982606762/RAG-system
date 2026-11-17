@@ -20,7 +20,7 @@ docker compose -f deploy/proxy/compose.yml exec caddy caddy validate --config /e
 docker compose -f deploy/proxy/compose.yml exec caddy caddy reload --config /etc/caddy/Caddyfile
 ```
 
-当前提供登录、文档上传、解析、分块、原件与结果查看。不包含搜索或 AI 问答。
+当前提供登录、文档上传、解析、分块、关键词搜索和原件定位。不包含语义搜索或 AI 问答。
 Docker Compose 的前端与 API 共用 `http://localhost:8001`，生产 OCR 依赖已安装在后端镜像内。
 
 ## 新安装
@@ -141,7 +141,9 @@ npm run dev
 - 备份必须包含 `pgdata` 与 `files/mvp/`。备份前暂停上传，保持文件和元数据一致；旧备份单独保留。
 - 公网使用前配置 HTTPS；仓库的 nginx 不终止 TLS。
 
-GitHub Actions 部署仍为手动触发；首次部署 MVP 前须执行 `init-db`，常规更新不自动清理数据。
+GitHub Actions 在 `main` push 后先运行完整测试，通过后自动部署同一个提交；也可以手动触发。
+部署保留现有数据库、HTTPS 路由、主人凭据和 Google ADC 挂载，先备份，再切换，失败回滚。
+生产运维使用活动发布的 `production.json`，详见 [部署脚本说明](scripts/DEPLOYMENT.md)。
 测试工作流使用临时 PostgreSQL 与合成资料，不访问生产环境。
 
 ```bash

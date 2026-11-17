@@ -35,3 +35,17 @@ for container in $(docker compose ps -q); do
 done
 printf 'HTTP status:\n'
 curl -sS -o /dev/null -w '%{http_code}\n' --max-time 10 http://127.0.0.1:8001/ || true
+
+python3 - <<'PY'
+import json, subprocess
+config = json.loads(subprocess.check_output(['docker','compose','config','--format','json']))
+front = config['services']['frontend']
+print('Frontend routing:', json.dumps({k:front.get(k) for k in ('networks','ports')}))
+labels = front.get('labels', {})
+print('Routing labels:', json.dumps({k:v for k,v in labels.items() if k.endswith(('.rule','.loadbalancer.server.port','.entrypoints','.tls.certresolver')) or k in ('traefik.enable','traefik.docker.network')}))
+print('Compose networks:', json.dumps(config.get('networks')))
+ids = subprocess.check_output(['docker','ps','-q','--filter','network=web']).decode().split()
+for cid in ids:
+    item = json.loads(subprocess.check_output(['docker','inspect',cid]))[0]
+    print('Web container:', json.dumps({'name':item['Name'], 'image':item['Config']['Image'], 'ports':item['NetworkSettings']['Ports']}))
+PY
