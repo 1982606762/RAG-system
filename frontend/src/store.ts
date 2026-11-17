@@ -1,46 +1,25 @@
 import { create } from 'zustand'
 
-// Minimal auth store. The JWT lives in localStorage so a page refresh keeps
-// you logged in; the store mirrors it in memory so components re-render on
-// login/logout. Anything that needs the token reads it from here.
+const tokenKey = 'rag.owner.token'
 
-interface User {
-  id: string
-  email: string
-}
+// Retire the old multi-user session instead of interpreting it as owner access.
+localStorage.removeItem('token')
+localStorage.removeItem('user')
 
 interface AuthState {
   token: string | null
-  user: User | null
-  setAuth: (token: string, user: User) => void
+  setToken: (token: string) => void
   logout: () => void
 }
 
-function storedUser(): User | null {
-  try {
-    return JSON.parse(localStorage.getItem('user') || 'null')
-  } catch {
-    localStorage.removeItem('user')
-    localStorage.removeItem('token')
-    return null
-  }
-}
-
-const initialUser = storedUser()
-
 export const useAuth = create<AuthState>((set) => ({
-  token: initialUser ? localStorage.getItem('token') : null,
-  user: initialUser,
-
-  setAuth: (token, user) => {
-    localStorage.setItem('token', token)
-    localStorage.setItem('user', JSON.stringify(user))
-    set({ token, user })
+  token: localStorage.getItem(tokenKey),
+  setToken: (token) => {
+    localStorage.setItem(tokenKey, token)
+    set({ token })
   },
-
   logout: () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
-    set({ token: null, user: null })
+    localStorage.removeItem(tokenKey)
+    set({ token: null })
   },
 }))

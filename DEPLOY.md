@@ -1,266 +1,150 @@
-# 部署指南:GitHub + 海外 VPS + 推送即自动部署
+# 运行文档 MVP
 
-整体流程分三大步:
+当前公网入口为 https://rag.xuanlang.dev 。Caddy 通过 Docker 网络转发至 `frontend:80`，
+自动签发和续期 HTTPS 证书，并将 HTTP 重定向至 HTTPS。
+前端的 8001 端口仅绑定服务器 loopback，供本机检查使用。
 
-1. **本地** → 把项目推到 GitHub
-2. **服务器** → 装好 Docker,第一次手动跑起来
-3. **自动化** → 配好 GitHub Actions,以后 `git push` 就自动部署
-
----
-
-## Part 0:先理解整个链路(很重要)
-
-```
-你电脑 --git push--> GitHub --触发 Actions--> SSH 进服务器
-                                                  |
-                                          git pull + docker compose up
-                                                  |
-                                          应用更新完成 ✅
-```
-
-关键点:**镜像是在服务器上构建的**(`docker compose up --build`),GitHub Actions 只负责"远程下命令"。这是个人项目最简单稳妥的方案,不用折腾镜像仓库。
-
----
-
-## Part 1:推到 GitHub
-
-### 1.1 在 GitHub 建一个空仓库
-
-打开 https://github.com/new ,填仓库名(例如 `rag`),**不要**勾选 "Add README/.gitignore/license"(保持空仓库),建好后复制它的地址,例如:
-
-```
-git@github.com:你的用户名/rag.git
-```
-
-> 用 SSH 地址(`git@`)而不是 https,推送时不用反复输密码。如果你还没配过 GitHub SSH key,先做 1.2;配过就跳到 1.3。
-
-### 1.2 (首次)给你电脑配 GitHub SSH key
+应用启动后运行独立代理（应用 Compose 项目名为 `rag-system`）：
 
 ```bash
-# Generate a key if you don't have one
-ssh-keygen -t ed25519 -C "zxl17302206700@gmail.com"
-# Press Enter to accept defaults
-
-# Copy the PUBLIC key
-cat ~/.ssh/id_ed25519.pub
+docker compose -f deploy/proxy/compose.yml up -d
+curl --fail https://rag.xuanlang.dev/api/health
 ```
 
-把输出的整段贴到 GitHub → Settings → SSH and GPG keys → New SSH key。
-
-### 1.3 本地初始化并推送
-
-在项目根目录(`RAG system/`)执行:
+代理连接已有的 `rag-system_default` 网络。证书及 ACME 账户保存在
+`rag-proxy_caddy_data` 卷中，应持久保留。服务器需对外开放 TCP 80/443，
+HTTP/3 使用 UDP 443。修改 Caddyfile 后可校验并平滑加载：
 
 ```bash
-git init
-git add .
-git commit -m "Initial commit: RAG system"
-git branch -M main
-git remote add origin git@github.com:你的用户名/rag.git
-git push -u origin main
+docker compose -f deploy/proxy/compose.yml exec caddy caddy validate --config /etc/caddy/Caddyfile
+docker compose -f deploy/proxy/compose.yml exec caddy caddy reload --config /etc/caddy/Caddyfile
 ```
 
-**推送前务必确认 `.env` 没被提交**(里面有你的 API key)。我已经写好 `.gitignore` 排除它,可以这样验证:
+当前提供登录、文档上传、解析、分块、原件与结果查看。不包含搜索或 AI 问答。
+Docker Compose 的前端与 API 共用 `http://localhost:8001`，生产 OCR 依赖已安装在后端镜像内。
 
-```bash
-git status            # .env 不应该出现在列表里
-git ls-files | grep .env   # 应该只看到 .env.example
-```
-
----
-
-## Part 2:服务器首次部署(手动跑通一次)
-
-> 先手动跑通,确认没问题,再上自动化。这样出错时你知道是代码问题还是 CI 问题。
-
-### 2.1 SSH 登录服务器
-
-```bash
-ssh ubuntu@你的服务器IP
-```
-
-### 2.2 安装 Docker(Ubuntu 一次性脚本)
-
-```bash
-# Official convenience script
-curl -fsSL https://get.docker.com | sudo sh
-
-# Let your user run docker without sudo
-sudo usermod -aG docker $USER
-# IMPORTANT: log out and back in for the group change to take effect
-exit
-```
-
-重新 SSH 登录后验证:
-
-```bash
-docker --version
-docker compose version
-```
-
-### 2.3 把代码拉到服务器
-
-**公开仓库**直接 clone:
-
-```bash
-cd ~
-git clone https://github.com/你的用户名/rag.git
-cd rag
-```
-
-**私有仓库**:服务器需要一个能读仓库的凭据。最简单的是给服务器生成一把 SSH key 并加为仓库的 **Deploy Key**:
-
-```bash
-ssh-keygen -t ed25519 -C "server-deploy"   # 一路回车
-cat ~/.ssh/id_ed25519.pub
-# 把它贴到 GitHub 仓库 → Settings → Deploy keys → Add deploy key(只读即可)
-# 然后用 SSH 地址 clone:
-git clone git@github.com:你的用户名/rag.git
-cd rag
-```
-
-记下这个目录的绝对路径(后面 CI 要用),例如 `/home/ubuntu/rag`:
-
-```bash
-pwd
-```
-
-### 2.4 创建服务器上的 .env
-
-`.env` 不在 git 里,要在服务器手动建:
+## 新安装
 
 ```bash
 cp .env.example .env
-nano .env     # 填入真实的 ANTHROPIC_API_KEY,保存退出 (Ctrl+O, Enter, Ctrl+X)
 ```
 
-### 2.5 启动整个栈
+编辑 `.env`，设置随机的 `POSTGRES_PASSWORD` 和 `JWT_SECRET`。
+可用 `openssl rand -hex 32` 生成 JWT 密钥。
 
 ```bash
-docker compose up -d --build
+docker compose build
+docker compose run --rm --no-deps app python cli.py hash-password
 ```
 
-第一次会比较慢(拉镜像 + 装 Python 依赖)。完成后检查:
+将命令输出的整行 `OWNER_PASSWORD_HASH='...'` 写进 `.env`，保留单引号，
+避免 bcrypt 哈希中的 `$` 被 Compose 插值。密码命令不会写入数据库。
 
 ```bash
-docker compose ps          # 三个服务都应是 running/healthy
-docker compose logs -f app # 看应用日志,Ctrl+C 退出
+docker compose up -d postgres
+docker compose run --rm app python cli.py init-db
+docker compose up -d
+docker compose exec app python cli.py healthcheck
+curl --fail http://localhost:8001/api/health
 ```
 
-### 2.6 开放端口 / 访问
+打开 `http://localhost:8001`，登录并上传一份测试文件。
+`init-db` 创建 `knowledge_base_v1.documents/blocks/chunks`，可重复执行，不删除已有记录。
+API 不自动执行 DDL；未初始化时，文档接口返回带 `schema_missing` 的 503。
+`/api/health` 只验证数据库连通性，不替代 schema 或上传链路验收。
 
-应用监听 `8001`。确认两层防火墙都放行:
+## 已有安装
 
-- **云厂商安全组**:在控制台给实例放行入站 `8001`(以及 `22` SSH)。
-- **服务器本机防火墙**(如果开了 ufw):
+不要覆盖 `.env`，保留原数据库密码，合并新认证设置与 `OCR_LANGUAGES`。
+修改 `POSTGRES_PASSWORD` 不会更改已有卷中的数据库账户密码。
+先备份原文件、PostgreSQL 和旧向量卷。
+
+旧 `public` schema、`files/` 中原文件及旧卷不做自动迁移或删除。
+旧原件继续通过 `/files` 只读挂载；新原件在 `files/mvp/`，单独可写挂载为 `/documents`。
+新应用不会通过 API 暴露旧业务记录。将来迁移需要明确核对原件及所属关系。
+
+如果从旧版本升级，在切换源码前停止新上传并等旧任务结束，然后停止旧服务：
 
 ```bash
-sudo ufw allow 8001
+docker compose stop celery_worker redis chroma
 ```
 
-浏览器打开 `http://你的服务器IP:8001` 即可看到上传/问答界面。
+如果这些服务已在之前清理，跳过这一步。然后切换源码，按上面的 build、init-db、up 顺序启动。
+不要执行 `docker compose down -v` 或卷清理命令。
 
-> 安全提醒:`docker-compose.yml` 现在把 `5432`(Postgres)和 `8000`(Chroma)也映射到了公网。生产环境建议**只对外暴露 8001**,把另外两个的 `ports` 注释掉(容器之间走内部网络,不需要公网端口)。等你跑通后我可以帮你改。
+## API
 
----
+文档路由均需要 `Authorization: Bearer <token>`。
 
-## Part 3:配置 CI/CD(推送即自动部署)
+| 接口 | 用途 |
+| --- | --- |
+| `POST /api/auth/login` | 单密码换取 JWT |
+| `GET /api/auth/me` | 校验主人会话 |
+| `GET /api/health` | 数据库连通性，无认证 |
+| `GET /api/documents?limit=30&offset=0` | 分页列表，最大每页 100 条 |
+| `POST /api/documents` | multipart 的 `file` 字段；等待本次解析和分块完成 |
+| `GET /api/documents/{id}` | 文档信息、内容块、片段及来源 |
+| `GET /api/documents/{id}/original` | 带认证的原件下载 |
+| `POST /api/documents/{id}/retry` | 手动重试失败文件 |
 
-代码里已经有 `.github/workflows/deploy.yml`,它做的事:push 到 `main` → SSH 进服务器 → `git pull` → `docker compose up -d --build`。你只需要把 5 个密钥告诉 GitHub。
+上传成功接收后返回 `{document, duplicate}`，包括处理失败但已保存原件的情况；前端必须检查 `document.status`。
+重复内容返回原记录，不自动重试。参数错误、空文件、不支持类型、超限分别使用 4xx。
+另有文件正在处理时返回 409 `busy`，不排队。
 
-### 3.1 准备一把"部署专用"SSH key
+处理状态是 `processing / ready / failed`，阶段是 `saved / parsing / chunking / complete`。
+页面请求超时或关闭不代表后端已经停止处理；重新打开列表并刷新状态。
+在没有活跃入库锁时，读取列表/详情或开始新处理会将中断的 `processing` 标记为失败，等待手动重试。
 
-让 GitHub Actions 能登录你的服务器。**在你本地电脑**生成一把新 key(不要复用日常 key):
+旧 `/api/upload`、注册、任务、对话、模型选择与追踪接口不再使用。
+修改密码不会撤销已签发 token；需要全员重新登录时轮换 `JWT_SECRET`。
+
+## 本地开发
 
 ```bash
-ssh-keygen -t ed25519 -f ~/.ssh/rag_deploy -C "github-actions" -N ""
+conda activate rag
+pip install -r app/requirements.txt
 ```
 
-把**公钥**加到服务器的授权列表:
+扫描件/图片还需要 Tesseract 和 `eng/dan/chi_sim` 语言包。
+例如 macOS 可使用 `brew install tesseract tesseract-lang`；不安装时普通文本 PDF、TXT/Markdown 仍可处理。
+缺少 OCR 时扫描件会保存为失败记录，并显示明确提示。
+
+通过运行环境设置 `JWT_SECRET`、`OWNER_PASSWORD_HASH` 和 `PG_DSN`
+（也可使用 libpq 的 `PGHOST/PGPORT/PGDATABASE/PGUSER/PGPASSWORD`）。
+裸 Python 不自动加载根目录 `.env`。默认 `DOCUMENTS_DIR` 为项目 `files/mvp/`，可显式覆盖。
 
 ```bash
-ssh-copy-id -i ~/.ssh/rag_deploy.pub ubuntu@你的服务器IP
-# 或手动:把 rag_deploy.pub 内容追加到服务器的 ~/.ssh/authorized_keys
+cd app
+python cli.py init-db
+uvicorn main:app --reload --port 8001
 ```
 
-### 3.2 在 GitHub 仓库添加 Secrets
-
-仓库 → Settings → Secrets and variables → Actions → New repository secret,逐个添加:
-
-| Name | Value |
-|------|-------|
-| `SSH_HOST` | 服务器 IP |
-| `SSH_USER` | `ubuntu`(你的登录用户) |
-| `SSH_PORT` | `22` |
-| `SSH_KEY` | `cat ~/.ssh/rag_deploy` 的**完整私钥内容**(含首尾 BEGIN/END 行) |
-| `DEPLOY_PATH` | 2.3 里 `pwd` 得到的路径,如 `/home/ubuntu/rag` |
-
-### 3.3 测试自动部署
-
-本地随便改点东西并推送:
+另一个终端：
 
 ```bash
-git commit -am "test: trigger CI deploy"
-git push
+cd frontend
+npm ci
+npm run dev
 ```
 
-打开 GitHub 仓库的 **Actions** 标签,能看到 `Deploy` 任务在跑。绿勾 = 成功,服务器已自动更新。也可以在 Actions 页点 "Run workflow" 手动触发。
+打开 `http://localhost:3000`，Vite 将 `/api` 代理至 `8001`。
 
----
+## 限制与运维
 
-## 常见问题排查
+- 文件最大 20 MiB，PDF 最大 50 页，提取文本最多 100 万字符。
+- nginx 请求体上限 21 MiB（包含 multipart），上游等待 150 秒；前端处理请求等待 155 秒。
+- 解析有 120 秒软预算，在页间及 OCR 前后检查；单次 OCR 最长 45 秒且不超过剩余预算。
+  本地 PDF 解析器单页调用无法被这个软预算中途打断；异常复杂文件应拆分。
+- PostgreSQL session advisory lock 保证同时仅处理一份文档，其他请求仍可读取资料。
+  使用直接 PostgreSQL 连接；不适配 transaction-pooling 模式的连接池。
+- 失败保留原件和已成功写入的解析块；片段写入是原子事务。无后台任务、自动重试或断点续跑。
+- 备份必须包含 `pgdata` 与 `files/mvp/`。备份前暂停上传，保持文件和元数据一致；旧备份单独保留。
+- 公网使用前配置 HTTPS；仓库的 nginx 不终止 TLS。
 
-- **Actions 报 `Permission denied (publickey)`**:`SSH_KEY` 贴的是私钥不是公钥;或公钥没加到服务器 `authorized_keys`;或 `SSH_USER` 写错。
-- **`git pull` 报冲突**:服务器上别手动改代码。所有改动都从本地 push,服务器只 pull。
-- **改了代码但页面没变**:工作流用的是 `--build`,确认 Actions 这次真的跑成功了;再 `docker compose logs app` 看有没有报错。
-- **磁盘越来越满**:工作流已自动 `docker image prune -f`;数据卷(pgdata/chromadata)是你的真实数据,不要删。
-- **环境变量改了**:`.env` 改动要手动在服务器改并 `docker compose up -d` 重启(CI 不碰 .env)。
-
----
-
-## 最终架构总览(两把 key,别搞混)
-
-整套部署涉及**两把方向相反、用途不同的 SSH key**。这是当初 debug 最容易绕晕的地方,记住它就不会再迷路。
-
-**Key A — GitHub Actions 登录 VPS**(方向:GitHub → 服务器)
-
-- 私钥:存在 GitHub 仓库 secret `SSH_KEY` 里。
-- 公钥:加在服务器 `deploy` 用户的 `~/.ssh/authorized_keys`。
-- 作用:让 CI 能 SSH 进服务器下命令。
-
-**Key B — VPS 拉取私有仓库**(方向:服务器 → GitHub)
-
-- 私钥:存在服务器 `/home/deploy/.ssh/` 里。
-- 公钥:注册在 GitHub 仓库的 **Deploy Keys**(只读即可)。
-- 作用:让 deploy 用户能 `git pull` 私有仓库。
-
-**一次部署的完整流程:**
-
-```
-你 push 到 main
-  → GitHub Actions 启动
-  → 用 Key A，SSH 进 VPS 的 deploy 用户
-  → deploy 执行 git pull（用 Key B 从私有仓库拉新代码）
-  → docker compose up -d --build 重建并重启
-  → 完成 ✅
-```
-
-**排查 SSH 认证的黄金法则**:任何一次登录失败,先问"**正确的公钥,在不在我要连的那台机器、那个用户的 `authorized_keys` 里**"。本地"能登录"不等于"这把特定的 key 能登录"——ssh-agent 会拿别的 key 兜底。要隔离验证某一把 key,必须加 `-o IdentitiesOnly=yes`:
+GitHub Actions 部署仍为手动触发；首次部署 MVP 前须执行 `init-db`，常规更新不自动清理数据。
+测试工作流使用临时 PostgreSQL 与合成资料，不访问生产环境。
 
 ```bash
-ssh -i ~/.ssh/某私钥 -o IdentitiesOnly=yes user@host
+docker compose logs -f app
+docker compose ps
 ```
-
-这条命令的行为才和 GitHub Actions 的干净环境等价。
-
-**网络暴露面**:只有应用端口 `8001` 对公网开放;Postgres `5432`、Chroma `8000` 已绑定到 `127.0.0.1`,只能从服务器本机或 SSH 隧道访问。想从本地连库:
-
-```bash
-ssh -L 5432:localhost:5432 deploy@服务器IP
-```
-
-## 之后还能加的(可选)
-
-- CI 里先跑测试/lint,通过才部署
-- 用 Nginx + 域名 + HTTPS(Let's Encrypt)替代裸 IP:端口
-- 数据库定时备份脚本

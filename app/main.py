@@ -1,25 +1,46 @@
-"""FastAPI app assembly — wire the routers.
+"""FastAPI application for the single-owner document MVP."""
 
-The frontend is NO LONGER served from here: nginx (the `frontend` container)
-serves the built React app and reverse-proxies /api to this service. So this
-process is a pure JSON API now.
-
-Run with: uvicorn main:app --host 0.0.0.0 --port 8001
-"""
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+import psycopg
 
-from api.routes import router
 from api.auth import router as auth_router
-from api.conversations import router as conv_router
+from api.health import router as health_router
+from api.documents import router as documents_router
+from api.search import router as search_router
+from core.config import validate_config
+from documents.models import DocumentError
 
-app = FastAPI(title="家用文件知识库")
-app.include_router(router)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    validate_config()
+    yield
+
+
+app = FastAPI(title="个人知识库", lifespan=lifespan)
 app.include_router(auth_router)
-app.include_router(conv_router)
+app.include_router(health_router)
+app.include_router(documents_router)
+app.include_router(search_router)
+
+
+@app.exception_handler(DocumentError)
+async def document_error_handler(request, exc):
+    return JSONResponse(status_code=exc.status, content={"detail": str(exc), "code": exc.code})
+
+
+@app.exception_handler(psycopg.Error)
+async def database_error_handler(request, exc):
+    missing_schema = isinstance(exc, (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName))
+    return JSONResponse(status_code=503, content={
+        "detail": "请先运行 python cli.py init-db 初始化文档数据库。" if missing_schema else "数据库暂时不可用，请稍后重试。",
+        "code": "schema_missing" if missing_schema else "database_unavailable",
+    })
 
 
 @app.get("/")
 def root():
-    """Tiny liveness probe for hitting the backend directly (bypassing nginx)."""
     return {"service": "rag-api", "status": "ok"}

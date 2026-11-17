@@ -1,260 +1,205 @@
 import { create } from 'zustand'
 
-// Tiny home-grown i18n — no extra dependency. A flat key->string dictionary per
-// language, a zustand store holding the current language (persisted so a refresh
-// keeps your choice), and a useT() hook that returns a translate function bound
-// to the active language. Components re-render on language change because they
-// subscribe to the store via the hook.
-
 export type Lang = 'zh' | 'en'
 
-interface LangState {
-  lang: Lang
-  setLang: (l: Lang) => void
-  toggle: () => void
-}
-
-export const useLang = create<LangState>((set, get) => ({
-  // Default to Chinese; honor a previously saved choice.
-  lang: (localStorage.getItem('lang') as Lang) || 'zh',
-  setLang: (lang) => {
+export const useLang = create<{ lang: Lang; toggle: () => void }>((set, get) => ({
+  lang: localStorage.getItem('lang') === 'en' ? 'en' : 'zh',
+  toggle: () => {
+    const lang = get().lang === 'zh' ? 'en' : 'zh'
     localStorage.setItem('lang', lang)
     set({ lang })
   },
-  toggle: () => {
-    const next: Lang = get().lang === 'zh' ? 'en' : 'zh'
-    localStorage.setItem('lang', next)
-    set({ lang: next })
-  },
 }))
 
-// All UI strings. Keep keys flat and identical across languages.
-const dict: Record<Lang, Record<string, string>> = {
-  zh: {
-    // app shell
-    'app.brand': '📁 家用文件知识库',
-    'nav.chat': '问答',
-    'nav.upload': '上传',
-    'nav.documents': '文件',
-    'nav.traces': '轨迹',
-    'app.logout': '退出',
-
-    // shared
-    'common.download': '下载',
-    'common.delete': '删除',
-    'common.loading': '加载中…',
-    'common.confirmDelete': '确定删除这个文件吗？此操作不可恢复。',
-    'common.deleteFailed': '删除失败，请重试',
-    'common.downloadFailed': '下载失败，请重试',
-    'common.file': '文件',
-
-    // login
-    'login.title': '登录',
-    'login.register': '注册',
-    'login.tagline': '用自然语言搜索和问答你的所有文件',
-    'login.email': '邮箱',
-    'login.password': '密码（至少 6 位）',
-    'login.toRegister': '没有账号？去注册',
-    'login.toLogin': '已有账号？去登录',
-    'login.failed': '操作失败，请重试',
-    'login.demoTitle': '体验账号',
-    'login.demoFill': '一键填入',
-    'login.demoHint': '点击「一键填入」后直接登录即可体验',
-
-    // chat
-    'chat.newConv': '＋ 新对话',
-    'chat.convDefault': '新对话',
-    'chat.empty': '问点什么吧，比如「我有哪些发票？」',
-    'chat.thinking': '思考中…',
-    'chat.inputPlaceholder': '输入问题…',
-    'chat.send': '发送',
-    'chat.error': '（出错了，请重试）',
-    'chat.toolCalls': '{n} 次工具调用',
-
-    // upload
-    'upload.title': '上传文件',
-    'upload.dropRelease': '松开即可上传',
-    'upload.dropHint': '拖拽文件到这里，或点击选择（可多选）',
-    'upload.dropSub': '支持图片或 PDF',
-    'upload.camera': '📷 拍照上传',
-    'upload.statusUploading': '上传中…',
-    'upload.statusQueued': '排队中…',
-    'upload.statusStarted': '分析中…',
-    'upload.statusFailedPrefix': '✗ 失败：',
-    'upload.statusDuplicate': '✓ 已存在（重复文件，已跳过）',
-    'upload.statusDone': '✓ 完成',
-    'upload.uploadFailed': '上传失败',
-    'upload.taskQueryFailed': '查询任务状态失败',
-
-    // documents
-    'docs.title': '我的文件（{n}）',
-    'docs.searchPlaceholder': '用自然语言搜索，例如「去年的水电费发票」',
-    'docs.searching': '搜索中…',
-    'docs.search': '搜索',
-    'docs.clear': '清除',
-    'docs.colType': '类型',
-    'docs.colDate': '日期',
-    'docs.colParty': '相关方',
-    'docs.colAmount': '金额',
-    'docs.colSummary': '摘要',
-    'docs.colActions': '操作',
-    'docs.noMatch': '没有找到匹配的文件',
-    'docs.noFiles': '还没有文件，去「上传」试试',
-
-    // file detail modal
-    'detail.title': '文件详情',
-    'detail.close': '关闭',
-    'detail.previewLoading': '预览加载中…',
-    'detail.noPreview': '该文件类型不支持预览，请下载查看',
-    'detail.previewAlt': '预览',
-    'detail.pdfTitle': 'PDF 预览',
-    'detail.section': '详细信息',
-
-    // traces
-    'traces.title': '运行轨迹 / Traces（{n}）',
-    'traces.hint': '每次问答的 Agent 运行记录：调用了哪些工具、每步耗时、token 与成本。',
-    'traces.colTime': '时间',
-    'traces.colQuestion': '问题',
-    'traces.colModel': '模型',
-    'traces.colCost': '成本',
-    'traces.colDuration': '耗时',
-    'traces.colTurnsTools': '轮次/工具',
-    'traces.colStatus': '状态',
-    'traces.empty': '还没有运行记录，去「问答」问点什么',
-    'traces.detail': '运行详情',
-    'traces.fieldQuestion': '问题',
-    'traces.fieldModel': '模型',
-    'traces.fieldCost': '成本',
-    'traces.fieldDuration': '耗时',
-    'traces.fieldStatus': '状态',
-    'traces.timeline': '步骤时间线',
-    'traces.llm': '🧠 LLM',
-    'traces.tool': '🛠 工具',
-    'traces.stepInput': '入参：',
-    'traces.stepResult': '结果：',
-    'traces.finalAnswer': '最终答案',
-  },
-  en: {
-    // app shell
-    'app.brand': '📁 Home File Knowledge Base',
-    'nav.chat': 'Chat',
-    'nav.upload': 'Upload',
-    'nav.documents': 'Files',
-    'nav.traces': 'Traces',
-    'app.logout': 'Log out',
-
-    // shared
-    'common.download': 'Download',
-    'common.delete': 'Delete',
-    'common.loading': 'Loading…',
-    'common.confirmDelete': 'Delete this file? This cannot be undone.',
-    'common.deleteFailed': 'Delete failed, please try again',
-    'common.downloadFailed': 'Download failed, please try again',
-    'common.file': 'File',
-
-    // login
-    'login.title': 'Sign in',
-    'login.register': 'Sign up',
-    'login.tagline': 'Search and ask questions about all your files in plain language',
-    'login.email': 'Email',
-    'login.password': 'Password (min 6 chars)',
-    'login.toRegister': "No account? Sign up",
-    'login.toLogin': 'Already have an account? Sign in',
-    'login.failed': 'Something went wrong, please try again',
-    'login.demoTitle': 'Demo account',
-    'login.demoFill': 'Fill in',
-    'login.demoHint': 'Click "Fill in", then sign in to try it out',
-
-    // chat
-    'chat.newConv': '＋ New chat',
-    'chat.convDefault': 'New chat',
-    'chat.empty': 'Ask me anything, e.g. "What invoices do I have?"',
-    'chat.thinking': 'Thinking…',
-    'chat.inputPlaceholder': 'Type your question…',
-    'chat.send': 'Send',
-    'chat.error': '(Something went wrong, please retry)',
-    'chat.toolCalls': '{n} tool calls',
-
-    // upload
-    'upload.title': 'Upload files',
-    'upload.dropRelease': 'Release to upload',
-    'upload.dropHint': 'Drag files here, or click to select (multiple allowed)',
-    'upload.dropSub': 'Images or PDF supported',
-    'upload.camera': '📷 Take a photo',
-    'upload.statusUploading': 'Uploading…',
-    'upload.statusQueued': 'Queued…',
-    'upload.statusStarted': 'Analyzing…',
-    'upload.statusFailedPrefix': '✗ Failed: ',
-    'upload.statusDuplicate': '✓ Already exists (duplicate, skipped)',
-    'upload.statusDone': '✓ Done',
-    'upload.uploadFailed': 'Upload failed',
-    'upload.taskQueryFailed': 'Failed to query task status',
-
-    // documents
-    'docs.title': 'My files ({n})',
-    'docs.searchPlaceholder': 'Search in plain language, e.g. "last year\'s utility bills"',
-    'docs.searching': 'Searching…',
-    'docs.search': 'Search',
-    'docs.clear': 'Clear',
-    'docs.colType': 'Type',
-    'docs.colDate': 'Date',
-    'docs.colParty': 'Party',
-    'docs.colAmount': 'Amount',
-    'docs.colSummary': 'Summary',
-    'docs.colActions': 'Actions',
-    'docs.noMatch': 'No matching files found',
-    'docs.noFiles': 'No files yet — try the Upload tab',
-
-    // file detail modal
-    'detail.title': 'File details',
-    'detail.close': 'Close',
-    'detail.previewLoading': 'Loading preview…',
-    'detail.noPreview': "This file type can't be previewed — download to view",
-    'detail.previewAlt': 'Preview',
-    'detail.pdfTitle': 'PDF preview',
-    'detail.section': 'Details',
-
-    // traces
-    'traces.title': 'Run Traces ({n})',
-    'traces.hint': 'A record of each agent run: which tools were called, time per step, tokens and cost.',
-    'traces.colTime': 'Time',
-    'traces.colQuestion': 'Question',
-    'traces.colModel': 'Model',
-    'traces.colCost': 'Cost',
-    'traces.colDuration': 'Duration',
-    'traces.colTurnsTools': 'Turns/Tools',
-    'traces.colStatus': 'Status',
-    'traces.empty': 'No runs yet — ask something in Chat',
-    'traces.detail': 'Run details',
-    'traces.fieldQuestion': 'Question',
-    'traces.fieldModel': 'Model',
-    'traces.fieldCost': 'Cost',
-    'traces.fieldDuration': 'Duration',
-    'traces.fieldStatus': 'Status',
-    'traces.timeline': 'Step timeline',
-    'traces.llm': '🧠 LLM',
-    'traces.tool': '🛠 Tool',
-    'traces.stepInput': 'Input: ',
-    'traces.stepResult': 'Result: ',
-    'traces.finalAnswer': 'Final answer',
-  },
+const zh = {
+  search: '搜索资料',
+  searchAction: '搜索',
+  searchHint: '输入中文或英文关键词',
+  searchScope: '搜索已处理资料的正文；空格分隔的关键词需全部匹配，最多 10 个。',
+  searching: '正在搜索…',
+  searchError: '搜索未完成，请检查关键词数量并重试。',
+  searchResults: '搜索结果',
+  noResults: '没有找到匹配的片段。试试更短的关键词。',
+  brand: '个人知识库',
+  private: '私人空间',
+  loginTitle: '进入知识库',
+  password: '访问密码',
+  login: '登录',
+  loggingIn: '正在登录…',
+  loginError: '登录失败，请检查密码和服务状态。',
+  logout: '退出',
+  loading: '正在验证登录状态…',
+  sessionError: '暂时无法连接服务，请重试。',
+  retry: '重试',
+  title: '你的资料工作空间',
+  description: '在这里整理资料、阅读原文，并围绕内容提问。',
+  rebuilding: '功能重建中',
+  notice: '目前仅开放登录和服务状态查看，资料管理、搜索和问答将在后续开放。',
+  library: '资料库',
+  libraryDescription: '收集文件，浏览摘要、标签和原始内容。',
+  reading: '阅读与问答',
+  readingDescription: '查找资料，围绕原文提问，并核对回答来源。',
+  activity: '任务与用量',
+  activityDescription: '查看文件处理进度和模型调用用量。',
+  pending: '待开放',
+  healthChecking: '正在检查服务状态…',
+  healthReady: '服务与数据库连接正常',
+  healthError: '服务或数据库暂时不可用',
+  upload: '上传文件',
+  uploadHint: 'PDF、TXT、Markdown、PNG、JPEG、WebP · 最大 20 MiB / PDF 50 页',
+  uploadAction: '选择文件',
+  uploading: '正在上传',
+  processing: '正在解析与分块，请保持页面打开…',
+  emptyLibrary: '从第一份资料开始',
+  emptyHint: '上传一份文档，查看提取内容和分块结果。',
+  documents: '份资料',
+  filename: '文件',
+  status: '状态',
+  size: '大小',
+  chunks: '片段',
+  blocks: '内容块',
+  ready: '已处理',
+  failed: '处理失败',
+  working: '处理中',
+  refresh: '刷新',
+  previous: '上一页',
+  next: '下一页',
+  original: '原件',
+  extracted: '提取内容',
+  chunkView: '分块结果',
+  download: '下载原件',
+  close: '关闭',
+  loadingDocument: '正在读取文档…',
+  loadError: '暂时无法读取资料，请重试。',
+  actionError: '操作未完成，请刷新查看状态后重试。',
+  timeoutError: '等待超时。服务可能仍在处理，请先刷新查看状态，再决定是否重试。',
+  duplicate: '这份文件已存在，已打开原有记录。',
+  uploaded: '文档已处理，可以查看内容和片段。',
+  uploadFailed: '原件已保存，但处理失败。可打开详情查看原因并重试。',
+  retryProcessing: '重新处理',
+  warnings: '解析提示',
+  page: '页',
+  block: '内容块',
+  chunk: '片段',
+  characters: '字符',
+  source: '查看来源',
+  openOriginalSource: '查看原件位置',
+  originalLines: '原件行号',
+  highlightedSource: '引用的原文区域',
+  sourceFallback: '这段内容没有可靠的原件位置，已定位到提取内容；可切换原件核对。',
+  pageSourceFallback: '已打开来源页；这段内容没有可靠坐标，请在本页核对。',
+  pagePreviewFallback: '页面图片预览不可用，已切换 PDF 阅读器；可下载原件核对。',
+  noContent: '暂无提取内容。',
+  noChunks: '暂无片段。',
+  failedStage: '失败阶段',
+  chunkSettings: '按字符数分块',
+  chunkTarget: '目标',
+  chunkMaximum: '上限',
+  chunkOverlap: '长段落重叠上限',
+  previewUnavailable: '原件预览不可用，可以下载文件查看。',
+  fileTooLarge: '文件不能超过 20 MiB。',
+  busy: '已有文件正在处理，请稍后重试。',
+  schemaMissing: '文档数据库尚未初始化，请按部署文档运行 init-db。',
+  localProcessing: '解析完成后可搜索正文并查看来源。',
+  selectDocument: '选择文件查看详情',
 }
 
-// Returns a translate function bound to the current language. Supports {name}
-// placeholders: t('docs.title', { n: 5 }).
+type Key = keyof typeof zh
+const en: Record<Key, string> = {
+  search: 'Search documents',
+  searchAction: 'Search',
+  searchHint: 'Enter Chinese or English keywords',
+  searchScope: 'Search completed documents. All space-separated keywords must match; up to 10 keywords.',
+  searching: 'Searching…',
+  searchError: 'Search failed. Check the number of keywords and try again.',
+  searchResults: 'Results for',
+  noResults: 'No matching chunks. Try shorter keywords.',
+  brand: 'Personal Knowledge Base',
+  private: 'Private workspace',
+  loginTitle: 'Enter your knowledge base',
+  password: 'Access password',
+  login: 'Sign in',
+  loggingIn: 'Signing in…',
+  loginError: 'Sign-in failed. Check your password and service availability.',
+  logout: 'Sign out',
+  loading: 'Checking your session…',
+  sessionError: 'Cannot connect to the service. Please retry.',
+  retry: 'Retry',
+  title: 'Your document workspace',
+  description: 'Organize documents, read originals, and ask questions about their contents.',
+  rebuilding: 'Rebuild in progress',
+  notice: 'Sign-in and service status are available. Document management, search, and chat are coming later.',
+  library: 'Library',
+  libraryDescription: 'Collect files and browse summaries, tags, and originals.',
+  reading: 'Reading and chat',
+  readingDescription: 'Find documents, ask questions, and verify answer sources.',
+  activity: 'Tasks and usage',
+  activityDescription: 'Track document processing and model usage.',
+  pending: 'Coming later',
+  healthChecking: 'Checking service status…',
+  healthReady: 'Service and database are connected',
+  healthError: 'Service or database is unavailable',
+  upload: 'Upload a document',
+  uploadHint: 'PDF, TXT, Markdown, PNG, JPEG, WebP · Up to 20 MiB / 50 PDF pages',
+  uploadAction: 'Choose a file',
+  uploading: 'Uploading',
+  processing: 'Extracting and splitting. Keep this page open…',
+  emptyLibrary: 'Start with your first document',
+  emptyHint: 'Upload a document to inspect its text and chunks.',
+  documents: 'documents',
+  filename: 'File',
+  status: 'Status',
+  size: 'Size',
+  chunks: 'Chunks',
+  blocks: 'Blocks',
+  ready: 'Ready',
+  failed: 'Failed',
+  working: 'Processing',
+  refresh: 'Refresh',
+  previous: 'Previous',
+  next: 'Next',
+  original: 'Original',
+  extracted: 'Extracted text',
+  chunkView: 'Chunks',
+  download: 'Download original',
+  close: 'Close',
+  loadingDocument: 'Loading document…',
+  loadError: 'Could not load documents. Please retry.',
+  actionError: 'The operation did not complete. Refresh its status before retrying.',
+  timeoutError: 'The request timed out. Processing may continue; refresh its status before retrying.',
+  duplicate: 'This file already exists. Opened the existing document.',
+  uploaded: 'Document processed. Its text and chunks are ready.',
+  uploadFailed: 'The original was saved, but processing failed. Open its details to retry.',
+  retryProcessing: 'Retry processing',
+  warnings: 'Extraction notes',
+  page: 'Page',
+  block: 'Block',
+  chunk: 'Chunk',
+  characters: 'characters',
+  source: 'View source',
+  openOriginalSource: 'View in original',
+  originalLines: 'Original lines',
+  highlightedSource: 'Cited source region',
+  sourceFallback: 'No reliable original position is available. Showing the extracted block; switch to the original to verify.',
+  pageSourceFallback: 'Opened the source page. No reliable region is available; verify against this page.',
+  pagePreviewFallback: 'Page image unavailable. Showing the PDF viewer; you can also download the original.',
+  noContent: 'No extracted content yet.',
+  noChunks: 'No chunks yet.',
+  failedStage: 'Failed stage',
+  chunkSettings: 'Character-based splitting',
+  chunkTarget: 'Target',
+  chunkMaximum: 'Maximum',
+  chunkOverlap: 'Long-paragraph overlap limit',
+  previewUnavailable: 'Preview unavailable. Download the original to view it.',
+  fileTooLarge: 'The file must be no larger than 20 MiB.',
+  busy: 'Another document is being processed. Please try again later.',
+  schemaMissing: 'Initialize the document database with init-db, as described in the deployment guide.',
+  localProcessing: 'Search the text and inspect sources after processing completes.',
+  selectDocument: 'Select a document to inspect it',
+}
+
 export function useT() {
-  const lang = useLang((s) => s.lang)
-  return (key: string, vars?: Record<string, string | number>) => {
-    let s = dict[lang][key] ?? dict.zh[key] ?? key
-    if (vars) {
-      for (const k in vars) s = s.replace(`{${k}}`, String(vars[k]))
-    }
-    return s
-  }
+  const lang = useLang((state) => state.lang)
+  const dictionary = lang === 'en' ? en : zh
+  return (key: Key) => dictionary[key]
 }
-
-// Demo credentials are opt-in build settings. Production builds contain no
-// usable defaults, so a private deployment does not advertise a shared login.
-export const SHOW_DEMO = import.meta.env.VITE_SHOW_DEMO === 'true'
-export const DEMO_EMAIL = import.meta.env.VITE_DEMO_EMAIL || ''
-export const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD || ''

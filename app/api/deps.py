@@ -1,40 +1,25 @@
-"""Reusable FastAPI dependencies.
-
-A "dependency" is a function FastAPI runs BEFORE your route. Declare
-`user: dict = Depends(get_current_user)` on any route and FastAPI will:
-  1. read the Authorization header,
-  2. validate the JWT,
-  3. load the user from the DB,
-  4. either hand your route the user dict, or reject with 401 first.
-
-So protecting a route is one line, and the logic lives here in one place.
-"""
+"""Authentication boundary shared by all future private routes."""
 
 import jwt
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from api.security import decode_access_token
-from db.storage import get_user_by_id
+from api.security import verify_access_token
 
-# Parses the "Authorization: Bearer <token>" header for us.
-_bearer = HTTPBearer()
+_bearer = HTTPBearer(auto_error=False)
 
 
-def get_current_user(
-    creds: HTTPAuthorizationCredentials = Depends(_bearer),
-) -> dict:
-    """Resolve the logged-in user from the bearer token, or raise 401."""
-    cred_exc = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="登录已失效或无效，请重新登录",
+def require_owner(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> None:
+    error = HTTPException(
+        status_code=401,
+        detail="请登录后访问",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    if credentials is None:
+        raise error
     try:
-        user_id = decode_access_token(creds.credentials)
-    except jwt.PyJWTError:
-        raise cred_exc
-    user = get_user_by_id(user_id)
-    if user is None:          # token valid but user deleted since
-        raise cred_exc
-    return user
+        verify_access_token(credentials.credentials)
+    except jwt.PyJWTError as exc:
+        raise error from exc

@@ -1,58 +1,55 @@
-"""Auth primitives — password hashing (bcrypt) and JWT tokens (PyJWT).
+"""Password verification and tokens for the one configured owner."""
 
-Kept separate from the routes so the hashing/token logic is easy to read,
-test, and reuse. Nothing here touches the database or FastAPI.
-"""
-
-import datetime
+from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
 
-from core.config import JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_MINUTES
+from core.config import (
+    JWT_ALGORITHM, JWT_AUDIENCE, JWT_EXPIRE_MINUTES, JWT_ISSUER, JWT_SECRET,
+)
 
 
-def hash_password(plain: str) -> str:
-    """Turn a plaintext password into a bcrypt hash (safe to store in the DB).
-
-    bcrypt works on bytes and only considers the first 72 bytes, which is
-    plenty for normal passwords. We decode the result to str for storage.
-    """
-    salt = bcrypt.gensalt()
-    return bcrypt.hashpw(plain.encode("utf-8"), salt).decode("utf-8")
+def hash_password(password: str) -> str:
+    if len(password) < 12 or len(password.encode("utf-8")) > 72:
+        raise ValueError("密码至少 12 个字符，且不能超过 72 个 UTF-8 字节")
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
-def verify_password(plain: str, hashed: str) -> bool:
-    """Check a login attempt against the stored hash. Never decrypts —
-    bcrypt re-hashes `plain` with the salt baked into `hashed` and compares.
-    """
+def verify_password(password: str, hashed: str) -> bool:
+    # Enforce the byte limit explicitly, including with older bcrypt versions.
+    if not password or len(password.encode("utf-8")) > 72:
+        return False
     try:
-        return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+        return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
     except ValueError:
-        # bcrypt rejects inputs longer than its 72-byte limit in newer versions.
         return False
 
 
-def create_access_token(user_id: str) -> str:
-    """Sign a JWT that proves 'this user is logged in until exp'.
+def create_access_token() -> str:
+    now = datetime.now(timezone.utc)
+    return jwt.encode(
+        {
+            "sub": "owner",
+            "iss": JWT_ISSUER,
+            "aud": JWT_AUDIENCE,
+            "iat": now,
+            "exp": now + timedelta(minutes=JWT_EXPIRE_MINUTES),
+        },
+        JWT_SECRET,
+        algorithm=JWT_ALGORITHM,
+    )
 
-    The token is NOT encrypted — anyone can read its payload. What they can't
-    do is forge one, because they don't have JWT_SECRET to sign it.
-    """
-    now = datetime.datetime.now(datetime.timezone.utc)
-    payload = {
-        "sub": user_id,                                   # subject: who it's for
-        "iat": now,                                       # issued at
-        "exp": now + datetime.timedelta(minutes=JWT_EXPIRE_MINUTES),  # expiry
-    }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
-
-def decode_access_token(token: str) -> str:
-    """Return the user_id from a valid token.
-
-    Raises a jwt.PyJWTError subclass if the token is expired, tampered with,
-    or otherwise invalid — the caller turns that into a 401.
-    """
-    payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-    return payload["sub"]
+def verify_access_token(token: str) -> None:
+    # A valid signature alone must not grant old multi-user tokens owner access.
+    payload = jwt.decode(
+        token,
+        JWT_SECRET,
+        algorithms=[JWT_ALGORITHM],
+        issuer=JWT_ISSUER,
+        audience=JWT_AUDIENCE,
+        options={"require": ["sub", "iss", "aud", "iat", "exp"]},
+    )
+    if payload["sub"] != "owner":
+        raise jwt.InvalidTokenError("Invalid owner")

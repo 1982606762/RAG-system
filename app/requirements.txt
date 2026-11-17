@@ -1,14 +1,9 @@
-anthropic
-chromadb
-psycopg[binary]
 fastapi
 uvicorn[standard]
-python-multipart
-# Local SentenceTransformer embedding model; model files are cached in hf_cache.
-sentence-transformers
-# Auth: bcrypt password hashing + PyJWT login tokens.
+psycopg[binary]
 bcrypt
 pyjwt
-# Async task queue for background file ingestion.
-celery
-redis
+python-multipart>=0.0.22,<0.1
+pdfplumber>=0.11.9,<0.12
+pytesseract>=0.3.13,<0.4
+google-cloud-documentai>=3,<4
