@@ -88,6 +88,16 @@ progress { accent-color: #284c70; }
 .search-controls input, .search-controls select { padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit; }
 .search-controls input { flex: 1; min-width: 8rem; }
 .search-panel small { color: #657487; }
+.ask-panel { padding: 24px; }
+.ask-panel h2, .ask-panel h3 { margin: 0 0 12px; }
+.ask-panel textarea { display: block; width: 100%; min-height: 88px; resize: vertical; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit; }
+.ask-panel small { display: block; color: #657487; margin-top: 8px; }
+.ask-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 12px; }
+.ask-actions select { padding: 8px; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit; }
+.ask-actions button { margin-left: auto; }
+.ask-answer { margin-top: 20px; padding-top: 16px; border-top: 1px solid #e8edf2; }
+.ask-answer p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.ask-answer .source-links button { max-width: 100%; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 .reader { scroll-margin-top: 20px; }
 .reader > p, .reader > .feedback, .reader > .extraction-notes { margin: 16px 24px; }
 .reader-meta { padding: 16px 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 14px; color: #596879; }

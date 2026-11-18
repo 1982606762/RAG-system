@@ -4,11 +4,11 @@ import userEvent from '@testing-library/user-event'
 import WorkspacePage from '../src/pages/WorkspacePage'
 import DocumentReader from '../src/components/DocumentReader'
 import { useLang } from '../src/i18n'
-import { getDocument, getOriginal, getPagePreview, listDocuments, searchDocuments, uploadDocument, type DocumentDetail } from '../src/api'
+import { askDocuments, getDocument, getOriginal, getPagePreview, listDocuments, searchDocuments, uploadDocument, type DocumentDetail } from '../src/api'
 
 vi.mock('../src/api', () => ({
   getDocument: vi.fn(), getOriginal: vi.fn(), getPagePreview: vi.fn(), listDocuments: vi.fn(),
-  retryDocument: vi.fn(), uploadDocument: vi.fn(), searchDocuments: vi.fn(), createEmbeddings: vi.fn(),
+  retryDocument: vi.fn(), uploadDocument: vi.fn(), searchDocuments: vi.fn(), createEmbeddings: vi.fn(), askDocuments: vi.fn(),
 }))
 
 const document: DocumentDetail = {
@@ -35,6 +35,23 @@ beforeEach(() => {
 })
 
 describe('Document workspace', () => {
+  it('submits a deep question and opens the verified citation in the original', async () => {
+    vi.mocked(askDocuments).mockResolvedValue({ data: {
+      paragraphs: [{ text: '每月清洗一次。', source_ids: ['S1'] }],
+      citations: { S1: { document_id: document.id, filename: document.filename, locations: [{ block_index: 1, page: 2 }] } },
+      limitations: '特殊环境的周期未注明。',
+    } } as never)
+    const { container } = render(<WorkspacePage />)
+    await userEvent.type(screen.getByRole('textbox', { name: '向资料提问' }), '多久清洗一次？')
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: '查询深度' }), 'deep')
+    await userEvent.click(screen.getByRole('button', { name: '提问', exact: true }))
+    expect(await screen.findByText('每月清洗一次。')).toBeVisible()
+    expect(screen.getByText('特殊环境的周期未注明。')).toBeVisible()
+    expect(askDocuments).toHaveBeenCalledWith('多久清洗一次？', 'deep', expect.any(AbortSignal))
+    await userEvent.click(screen.getByRole('button', { name: /\[S1\] manual.md/ }))
+    await waitFor(() => expect(container.querySelector('.highlighted')).toHaveTextContent('每月清洁滤网'))
+  })
+
   it('ignores an older search response after a new search completes', async () => {
     let finishOld!: (value: unknown) => void
     vi.mocked(searchDocuments).mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve }) as never)

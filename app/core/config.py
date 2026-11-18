@@ -23,6 +23,9 @@ VERTEX_EMBEDDING_PROJECT = os.getenv("VERTEX_EMBEDDING_PROJECT", os.getenv("GOOG
 VERTEX_EMBEDDING_LOCATION = os.getenv("VERTEX_EMBEDDING_LOCATION", "europe-west4").strip()
 VERTEX_EMBEDDING_MODEL = os.getenv("VERTEX_EMBEDDING_MODEL", "gemini-embedding-001").strip()
 EMBEDDING_BUDGET_SECONDS = 30
+VERTEX_ANSWER_PROJECT = os.getenv("VERTEX_ANSWER_PROJECT", "").strip()
+VERTEX_ANSWER_LOCATION = os.getenv("VERTEX_ANSWER_LOCATION", "global").strip()
+VERTEX_ANSWER_MODEL = os.getenv("VERTEX_ANSWER_MODEL", "gemini-3.1-flash-lite").strip()
 
 
 def validate_config() -> None:

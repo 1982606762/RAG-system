@@ -6,6 +6,7 @@ import urllib.error
 import urllib.parse
 import uuid
 from api.security import create_access_token
+from answers.provider import answer_profile
 from db.documents import connect
 
 base = os.getenv('RAG_VERIFY_URL', 'http://frontend')
@@ -47,6 +48,29 @@ try:
     query = urllib.parse.urlencode({'q': marker})
     with urllib.request.urlopen(urllib.request.Request(base + '/api/search?' + query, headers=headers)) as response:
         assert any(hit['document_id'] == document_id for hit in json.load(response)['items']), 'Search cannot find uploaded fixture'
+    question = f'What does the document containing {marker} verify? Use the exact marker as the only keyword when searching.'
+    ask = urllib.request.Request(base + '/api/ask', data=json.dumps({'question': question}).encode(), headers={
+        **headers, 'Content-Type': 'application/json',
+    })
+    if answer_profile() is None:
+        try:
+            urllib.request.urlopen(ask, timeout=130).close()
+            raise AssertionError('Unconfigured Gemini unexpectedly accepted a question')
+        except urllib.error.HTTPError as error:
+            assert error.code == 503 and json.load(error).get('code') == 'answer_disabled'
+    else:
+        try:
+            with urllib.request.urlopen(ask, timeout=130) as response:
+                answer = json.load(response)
+                cited = any(source['document_id'] == document_id for source in answer['citations'].values())
+                print('Gemini question verification:', 'fixture cited' if cited else 'fixture not cited')
+        except urllib.error.HTTPError as error:
+            if error.code not in (502, 503, 504):
+                raise
+            # A hosted model outage should not roll back a healthy document library.
+            print('Gemini question verification: unavailable (HTTP', error.code, ')')
+        except (TimeoutError, urllib.error.URLError):
+            print('Gemini question verification: connection unavailable')
     missing_page = base + '/api/documents/' + str(uuid.uuid4()) + '/pages/1/preview'
     try:
         urllib.request.urlopen(urllib.request.Request(missing_page, headers=headers))

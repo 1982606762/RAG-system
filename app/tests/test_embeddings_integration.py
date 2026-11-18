@@ -98,7 +98,7 @@ class EmbeddingIntegrationTests(unittest.TestCase):
 
         query = '零件多久维护一次'
         params = {'mode': 'semantic', 'q': f'  {query}  ', 'limit': 1}
-        with patch('api.search.VertexEmbedder') as provider:
+        with patch('embeddings.retrieval.VertexEmbedder') as provider:
             embed = provider.return_value.__enter__.return_value.embed
             embed.return_value = (VECTOR, 4)
             first = self.client.get('/api/search', params=params, headers=self.headers)
@@ -118,6 +118,18 @@ class EmbeddingIntegrationTests(unittest.TestCase):
         self.assertEqual([hit['document_id'] for hit in literal.json()['items']], [str(indexed)])
         literal = self.client.get('/api/search', params={'q': query}, headers=self.headers)
         self.assertEqual(literal.json()['items'], [])
+
+    def test_context_reads_only_current_neighbors_in_the_same_document(self):
+        identifier = self.create(['前一段', '上下文锚点', '后一段', '更远的段落'])
+        self.create(['其他文件'])
+        anchor, = store.search_chunks('上下文锚点', 10, 0)['items']
+        neighbors = store.read_chunk_context(anchor)
+        self.assertEqual([hit['chunk']['text'] for hit in neighbors], ['前一段', '上下文锚点', '后一段'])
+        self.assertEqual({hit['document_id'] for hit in neighbors}, {identifier})
+        with store.connect() as conn:
+            conn.execute("""UPDATE knowledge_base_v1.chunks SET data=jsonb_set(data, '{text}', to_jsonb('已改变'::text))
+                WHERE document_id=%s AND chunk_index=1""", (identifier,))
+        self.assertEqual(store.read_chunk_context(anchor), [])
 
     def test_overlong_input_is_split_and_completed_children_are_reused(self):
         identifier = self.create(['abcd'])

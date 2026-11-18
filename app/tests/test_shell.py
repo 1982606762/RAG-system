@@ -87,7 +87,6 @@ class ShellTests(unittest.TestCase):
             ("POST", "/api/auth/register"), ("GET", "/api/auth/config"),
             ("POST", "/api/upload"),
             ("POST", "/api/upload_async"), ("GET", "/api/tasks/old-task"),
-            ("POST", "/api/ask"),
             ("GET", "/api/conversations"), ("GET", "/api/traces"),
             ("GET", "/api/models"),
         ]
@@ -112,15 +111,15 @@ class ShellTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/search', params=params).status_code, 401)
         token = self.client.post('/api/auth/login', json={'password': PASSWORD}).json()['access_token']
         headers = {'Authorization': f'Bearer {token}'}
-        with patch('api.search.active_profile', return_value=None), patch('api.search.VertexEmbedder') as vertex, \
+        with patch('embeddings.retrieval.active_profile', return_value=None), patch('embeddings.retrieval.VertexEmbedder') as vertex, \
                 patch('db.embeddings.has_searchable_embeddings') as available:
             response = self.client.get('/api/search', params=params, headers=headers)
             self.assertEqual(response.status_code, 503)
             self.assertEqual(response.json()['code'], 'semantic_disabled')
             vertex.assert_not_called()
             available.assert_not_called()
-        with patch('api.search.active_profile'), patch('db.embeddings.has_searchable_embeddings', return_value=False), \
-                patch('api.search.VertexEmbedder') as vertex:
+        with patch('embeddings.retrieval.active_profile'), patch('db.embeddings.has_searchable_embeddings', return_value=False), \
+                patch('embeddings.retrieval.VertexEmbedder') as vertex:
             response = self.client.get('/api/search', params=params, headers=headers)
             self.assertEqual(response.status_code, 409)
             self.assertEqual(response.json()['code'], 'semantic_index_empty')

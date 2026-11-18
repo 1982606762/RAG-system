@@ -101,6 +101,21 @@ export const searchDocuments = (q: string, offset: number, signal: AbortSignal, 
     timeout: mode === 'semantic' ? 35000 : 15000,
   })
 
+export type AnswerDepth = 'auto' | 'deep'
+
+export interface DocumentAnswer {
+  paragraphs: { text: string; source_ids: string[] }[]
+  limitations: string
+  citations: Record<string, {
+    document_id: string
+    filename: string
+    locations: { block_index: number; page: number | null }[]
+  }>
+}
+
+export const askDocuments = (question: string, depth: AnswerDepth, signal: AbortSignal) =>
+  http.post<DocumentAnswer>('/api/ask', { question, depth }, { signal, timeout: 125000 })
+
 export const listDocuments = (offset = 0) => http.get<{ items: DocumentRecord[]; total: number }>(
   '/api/documents', { params: { limit: 30, offset } },
 )

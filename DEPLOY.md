@@ -79,6 +79,7 @@ docker compose stop celery_worker redis chroma
 | 接口 | 用途 |
 | --- | --- |
 | `POST /api/auth/login` | 单密码换取 JWT |
+| `POST /api/ask` | 通过 Gemini 查询资料并生成带原文引用的回答 |
 | `GET /api/auth/me` | 校验主人会话 |
 | `GET /api/health` | 数据库连通性，无认证 |
 | `GET /api/documents?limit=30&offset=0` | 分页列表，最大每页 100 条 |

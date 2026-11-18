@@ -4,6 +4,7 @@ import { DocumentRecord, listDocuments, retryDocument, uploadDocument } from '..
 import { useT } from '../i18n'
 import DocumentReader from '../components/DocumentReader'
 import SearchPanel from '../components/SearchPanel'
+import AskPanel from '../components/AskPanel'
 import { EmbeddingLabel } from '../components/EmbeddingPanel'
 
 export default function WorkspacePage() {
@@ -90,6 +91,12 @@ export default function WorkspacePage() {
   const errorKeys = ['schemaMissing', 'loadError', 'fileTooLarge', 'actionError', 'timeoutError', 'busy'] as const
   const errorKey = errorKeys.find(key => key === error)
 
+  function openSource(id: string, block: number | null) {
+    setSelected(id)
+    setSourceBlock(block)
+    setRevision(value => value + 1)
+  }
+
   return (
     <>
       <div className="workspace-title">
@@ -106,9 +113,8 @@ export default function WorkspacePage() {
       </section>
       {error && <div className="feedback error" role="alert">{errorKey ? t(errorKey) : error}</div>}
       {notice && <div className="feedback" role="status">{t(notice)}</div>}
-      <SearchPanel onSelect={(id, block) => {
-        setSelected(id); setSourceBlock(block); setRevision(value => value + 1)
-      }} />
+      <AskPanel onSelect={openSource} />
+      <SearchPanel onSelect={openSource} />
       <section className="library-panel" aria-label={t('library')}>
         <div className="panel-heading"><h2>{t('library')}</h2><button disabled={loading} onClick={() => { void refresh(); setRevision(v => v + 1) }}>{t('refresh')}</button></div>
         {loading && documents.length === 0 ? <p className="empty-state" role="status">{t('loadingDocument')}</p>
