@@ -84,8 +84,9 @@ progress { accent-color: #284c70; }
 .pagination { display: flex; align-items: center; justify-content: flex-end; gap: 16px; padding: 16px 24px; }
 .search-panel { padding: 24px; margin-bottom: 24px; }
 .search-panel label { display: block; font-weight: 600; margin-bottom: 10px; }
-.search-controls { display: flex; gap: 12px; margin-bottom: 8px; }
-.search-controls input { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit; }
+.search-controls { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
+.search-controls input, .search-controls select { padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit; }
+.search-controls input { flex: 1; min-width: 8rem; }
 .search-panel small { color: #657487; }
 .reader { scroll-margin-top: 20px; }
 .reader > p, .reader > .feedback, .reader > .extraction-notes { margin: 16px 24px; }

@@ -39,6 +39,18 @@ class ProviderTests(unittest.TestCase):
                          'parameters': {'autoTruncate': False, 'outputDimensionality': 768}})
         self.session.close.assert_called_once()
 
+    def test_rest_request_uses_query_task_with_the_same_model_and_dimensions(self):
+        self.reply({'predictions': [{'embeddings': {'values': [2.0] * DIMENSIONS,
+                     'statistics': {'truncated': False, 'token_count': 5}}}]})
+        with VertexEmbedder(self.profile, time.monotonic() + 12) as provider:
+            provider.embed('How often should I clean it?', task='RETRIEVAL_QUERY')
+        request = self.session.post.call_args
+        self.assertIn(self.profile.resource, request.args[0])
+        self.assertEqual(request.kwargs['json'], {
+            'instances': [{'content': 'How often should I clean it?', 'task_type': 'RETRIEVAL_QUERY'}],
+            'parameters': {'autoTruncate': False, 'outputDimensionality': DIMENSIONS},
+        })
+
     def test_token_limit_errors_and_truncation_are_never_accepted(self):
         bodies = [({'error': {'message': 'The input token count exceeds the maximum token limit.'}}, 400),
                   ({'predictions': [{'embeddings': {'values': [1.0] * 768, 'statistics': {'truncated': True, 'token_count': 2048}}}]}, 200),

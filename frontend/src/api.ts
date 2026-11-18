@@ -93,9 +93,12 @@ export interface SearchHit {
   chunk: Chunk
 }
 
-export const searchDocuments = (q: string, offset: number, signal: AbortSignal) =>
+export type SearchMode = 'keyword' | 'semantic'
+
+export const searchDocuments = (q: string, offset: number, signal: AbortSignal, mode: SearchMode = 'keyword') =>
   http.get<{ items: SearchHit[]; has_more: boolean }>('/api/search', {
-    params: { q, offset, limit: 30 }, signal,
+    params: { q, offset, limit: 30, mode }, signal,
+    timeout: mode === 'semantic' ? 35000 : 15000,
   })
 
 export const listDocuments = (offset = 0) => http.get<{ items: DocumentRecord[]; total: number }>(

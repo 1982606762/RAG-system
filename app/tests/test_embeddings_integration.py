@@ -21,6 +21,7 @@ from embeddings.provider import InputTooLong, active_profile
 from embeddings.service import index_document
 
 VECTOR = [1.0] + [0.0] * 767
+ORTHOGONAL_VECTOR = [0.0, 1.0] + [0.0] * 766
 
 
 @unittest.skipUnless(os.getenv('RAG_TEST_PG_DSN'), 'Set RAG_TEST_PG_DSN to test pgvector integration')
@@ -81,6 +82,42 @@ class EmbeddingIntegrationTests(unittest.TestCase):
         result, provider = self.index(identifier)
         provider.assert_not_called()
         self.assertEqual(result['embedding']['vector_count'], 3)
+
+    def test_semantic_search_ranks_unique_chunks_and_preserves_sources(self):
+        indexed = self.create(['每月清洁滤网。设备型号 AX-410。', '采购发票'])
+        self.index(indexed, [InputTooLong(), (VECTOR, 5), (VECTOR, 5), (ORTHOGONAL_VECTOR, 2)])
+        partial = self.create(['未完成的部分命中', '未生成向量的段落'])
+        self.index(partial, [(VECTOR, 4), DocumentError('embedding_quota', 'Quota reached', 503)])
+        old_model = self.create(['来自旧模型的命中'])
+        with patch.object(config, 'VERTEX_EMBEDDING_MODEL', 'text-multilingual-embedding-002'):
+            self.index(old_model)
+        unreadable = self.create(['不可阅读的命中'])
+        self.index(unreadable)
+        with store.connect() as conn:
+            conn.execute("UPDATE knowledge_base_v1.documents SET status='failed' WHERE id=%s", (unreadable,))
+
+        query = '零件多久维护一次'
+        params = {'mode': 'semantic', 'q': f'  {query}  ', 'limit': 1}
+        with patch('api.search.VertexEmbedder') as provider:
+            embed = provider.return_value.__enter__.return_value.embed
+            embed.return_value = (VECTOR, 4)
+            first = self.client.get('/api/search', params=params, headers=self.headers)
+            self.assertEqual(first.status_code, 200, first.text)
+            embed.assert_called_once_with(query, task='RETRIEVAL_QUERY')
+            match, = first.json()['items']
+            self.assertEqual(match['document_id'], str(indexed))
+            self.assertEqual(match['chunk']['text'], '每月清洁滤网。设备型号 AX-410。')
+            self.assertEqual(match['chunk']['sources'][0]['block_index'], 0)
+            self.assertTrue(first.json()['has_more'])
+            second = self.client.get('/api/search', params={**params, 'offset': 1}, headers=self.headers)
+            self.assertEqual(second.status_code, 200, second.text)
+            self.assertEqual([hit['chunk_index'] for hit in second.json()['items']], [1])
+            self.assertFalse(second.json()['has_more'])
+
+        literal = self.client.get('/api/search', params={'q': 'AX-410'}, headers=self.headers)
+        self.assertEqual([hit['document_id'] for hit in literal.json()['items']], [str(indexed)])
+        literal = self.client.get('/api/search', params={'q': query}, headers=self.headers)
+        self.assertEqual(literal.json()['items'], [])
 
     def test_overlong_input_is_split_and_completed_children_are_reused(self):
         identifier = self.create(['abcd'])

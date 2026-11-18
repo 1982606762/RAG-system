@@ -22,7 +22,7 @@ it('shows partial progress independently of document readiness', () => {
   render(<EmbeddingPanel document={document} busy={false} onUpdated={vi.fn()} />)
   expect(screen.getByText('向量未完成')).toBeVisible()
   expect(screen.getByText('1/3 个片段已完成 · 1 个向量')).toBeVisible()
-  expect(screen.getByText(/不影响原件阅读/)).toBeVisible()
+  expect(screen.getByText(/原件阅读和关键词搜索可独立使用/)).toBeVisible()
   expect(screen.getByRole('status')).toHaveTextContent('达到调用额度')
 })
 

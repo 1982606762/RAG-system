@@ -107,6 +107,27 @@ class ShellTests(unittest.TestCase):
             search.assert_called_once_with('滤网 filter', 30, 0)
         self.assertEqual(self.client.post('/api/search', headers=headers).status_code, 405)
 
+    def test_semantic_search_requires_owner_configuration_and_an_index(self):
+        params = {'q': 'How often should I clean it?', 'mode': 'semantic'}
+        self.assertEqual(self.client.get('/api/search', params=params).status_code, 401)
+        token = self.client.post('/api/auth/login', json={'password': PASSWORD}).json()['access_token']
+        headers = {'Authorization': f'Bearer {token}'}
+        with patch('api.search.active_profile', return_value=None), patch('api.search.VertexEmbedder') as vertex, \
+                patch('db.embeddings.has_searchable_embeddings') as available:
+            response = self.client.get('/api/search', params=params, headers=headers)
+            self.assertEqual(response.status_code, 503)
+            self.assertEqual(response.json()['code'], 'semantic_disabled')
+            vertex.assert_not_called()
+            available.assert_not_called()
+        with patch('api.search.active_profile'), patch('db.embeddings.has_searchable_embeddings', return_value=False), \
+                patch('api.search.VertexEmbedder') as vertex:
+            response = self.client.get('/api/search', params=params, headers=headers)
+            self.assertEqual(response.status_code, 409)
+            self.assertEqual(response.json()['code'], 'semantic_index_empty')
+            vertex.assert_not_called()
+        for invalid in ({**params, 'q': '   '}, {**params, 'q': '\x00'}, {**params, 'mode': 'hybrid'}):
+            self.assertEqual(self.client.get('/api/search', params=invalid, headers=headers).status_code, 422)
+
     def test_health_reports_readiness_with_http_status(self):
         with patch("api.health.check_database"):
             response = self.client.get("/api/health")

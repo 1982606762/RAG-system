@@ -2,8 +2,39 @@
 
 from psycopg.types.json import Jsonb
 
+from db import documents as store
 from documents.models import DocumentError
 from embeddings.provider import DIMENSIONS, active_profile
+
+
+def has_searchable_embeddings(profile):
+    with store.connect() as conn:
+        return conn.execute("""SELECT EXISTS (
+            SELECT 1 FROM knowledge_base_v1.embedding_runs r
+            JOIN knowledge_base_v1.documents d ON d.id=r.document_id
+            WHERE r.profile=%s AND r.status='ready' AND r.vector_count>0 AND d.status='ready'
+        ) AS available""", (profile.key,)).fetchone()['available']
+
+
+def search_chunks(profile, vector, limit, offset):
+    # Several vector parts may represent one chunk. Rank by the closest part
+    # and apply pagination to chunks, preserving their original source links.
+    with store.connect() as conn:
+        rows = conn.execute("""WITH ranked AS (
+            SELECT p.document_id, p.chunk_index, min(p.embedding <=> %s::vector) AS distance
+            FROM knowledge_base_v1.embedding_parts p
+            JOIN knowledge_base_v1.embedding_runs r USING (document_id, profile)
+            JOIN knowledge_base_v1.documents d ON d.id=p.document_id
+            WHERE p.profile=%s AND p.embedding IS NOT NULL AND r.status='ready' AND d.status='ready'
+            GROUP BY p.document_id, p.chunk_index
+        )
+        SELECT d.id AS document_id, d.filename, c.chunk_index, c.data AS chunk
+        FROM ranked
+        JOIN knowledge_base_v1.chunks c USING (document_id, chunk_index)
+        JOIN knowledge_base_v1.documents d ON d.id=c.document_id
+        ORDER BY ranked.distance, d.created_at DESC, d.id, c.chunk_index
+        LIMIT %s OFFSET %s""", (_vector_literal(vector), profile.key, limit + 1, offset)).fetchall()
+    return {"items": rows[:limit], "has_more": len(rows) > limit}
 
 
 def attach_status(conn, documents):
@@ -82,14 +113,17 @@ def split_part(conn, document_id, chunk_index, profile, parent, children):
             insert_part(conn, document_id, chunk_index, profile, child)
 
 
-def save_vector(conn, document_id, chunk_index, profile, part, vector, token_count):
+def _vector_literal(vector):
     # Values have been validated and normalized by the provider boundary; use a
     # bound text parameter with an explicit cast, requiring no pgvector driver.
-    value = '[' + ','.join(repr(number) for number in vector) + ']'
+    return '[' + ','.join(repr(number) for number in vector) + ']'
+
+
+def save_vector(conn, document_id, chunk_index, profile, part, vector, token_count):
     changed = conn.execute("""UPDATE knowledge_base_v1.embedding_parts SET embedding=%s::vector,token_count=%s
         WHERE document_id=%s AND chunk_index=%s AND profile=%s AND start_char=%s AND end_char=%s
             AND chunk_hash=%s AND input_hash=%s AND embedding IS NULL""",
-        (value, token_count, document_id, chunk_index, profile.key, part['start_char'], part['end_char'],
+        (_vector_literal(vector), token_count, document_id, chunk_index, profile.key, part['start_char'], part['end_char'],
          part['chunk_hash'], part['input_hash']))
     if changed.rowcount != 1:
         raise DocumentError('embedding_stale', '片段已改变，请刷新后继续生成向量。', 409)

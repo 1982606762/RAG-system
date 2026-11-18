@@ -82,7 +82,7 @@ class VertexEmbedder:
         if self.session:
             self.session.close()
 
-    def embed(self, text):
+    def embed(self, text, *, task=TASK):
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
             raise DocumentError("embedding_timeout", "向量化时间预算已用完，已保存的进度可继续处理。", 504)
@@ -91,7 +91,7 @@ class VertexEmbedder:
         try:
             response = self.session.post(
                 f"https://{host}/v1/{p.resource}:predict",
-                json={"instances": [{"content": text, "task_type": TASK}],
+                json={"instances": [{"content": text, "task_type": task}],
                       "parameters": {"autoTruncate": False, "outputDimensionality": DIMENSIONS}},
                 timeout=min(15, remaining), max_allowed_time=remaining,
             )

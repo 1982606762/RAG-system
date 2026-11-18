@@ -61,7 +61,42 @@ describe('Document workspace', () => {
     await userEvent.click(screen.getByRole('button', { name: '搜索', exact: true }))
     await userEvent.click(await screen.findByRole('button', { name: '查看来源 · 内容块 2' }))
     await waitFor(() => expect(container.querySelector('.highlighted')).toHaveTextContent('每月清洁滤网'))
-    expect(searchDocuments).toHaveBeenCalledWith('滤网', 0, expect.any(AbortSignal))
+    expect(searchDocuments).toHaveBeenCalledWith('滤网', 0, expect.any(AbortSignal), 'keyword')
+  })
+
+  it('keeps the submitted semantic mode while paging and opens the original source', async () => {
+    const hit = { document_id: document.id, filename: document.filename, chunk_index: 0, chunk: document.chunks[0] }
+    vi.mocked(searchDocuments)
+      .mockResolvedValueOnce({ data: { items: [hit], has_more: true } } as never)
+      .mockResolvedValueOnce({ data: { items: [{ ...hit, chunk_index: 1 }], has_more: false } } as never)
+    const { container } = render(<WorkspacePage />)
+    const mode = screen.getByRole('combobox', { name: '搜索模式' })
+    await userEvent.selectOptions(mode, 'semantic')
+    await userEvent.type(screen.getByRole('searchbox'), '零件多久维护一次')
+    await userEvent.click(screen.getByRole('button', { name: '搜索', exact: true }))
+    expect(await screen.findByText(/语义搜索结果 «零件多久维护一次»/)).toBeVisible()
+    await userEvent.selectOptions(mode, 'keyword')
+    await userEvent.click(screen.getByRole('button', { name: '下一页' }))
+    expect(searchDocuments).toHaveBeenLastCalledWith('零件多久维护一次', 30, expect.any(AbortSignal), 'semantic')
+    await userEvent.click(await screen.findByRole('button', { name: '查看来源 · 内容块 2' }))
+    await waitFor(() => expect(container.querySelector('.highlighted')).toHaveTextContent('每月清洁滤网'))
+  })
+
+  it('explains a missing semantic index and lets the user switch back to keywords', async () => {
+    vi.mocked(searchDocuments)
+      .mockRejectedValueOnce({ isAxiosError: true, response: { data: { code: 'semantic_index_empty' } } })
+      .mockResolvedValueOnce({ data: { items: [], has_more: false } } as never)
+    render(<WorkspacePage />)
+    const mode = screen.getByRole('combobox', { name: '搜索模式' })
+    const submit = screen.getByRole('button', { name: '搜索', exact: true })
+    await userEvent.selectOptions(mode, 'semantic')
+    await userEvent.type(screen.getByRole('searchbox'), '滤网')
+    await userEvent.click(submit)
+    expect(await screen.findByRole('alert')).toHaveTextContent('请先为至少一份资料完成向量生成')
+    await userEvent.selectOptions(mode, 'keyword')
+    await userEvent.click(submit)
+    expect(await screen.findByText('搜索结果 «滤网»')).toBeVisible()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('uploads a file, waits for processing, then opens the returned document', async () => {
