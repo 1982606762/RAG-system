@@ -35,13 +35,19 @@ export default function DocumentReader({ id, revision, busy, onRetry, onClose, i
     const controller = new AbortController()
     setLoading(true)
     setFailed(false)
-    getDocument(id, controller.signal).then(({ data }) => { setDocument(data) })
+    getDocument(id, controller.signal).then(({ data }) => { if (!controller.signal.aborted) setDocument(data) })
       .catch(() => { if (!controller.signal.aborted) setFailed(true) })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
   }, [id, revision, embeddingRevision])
 
-  useEffect(() => { root.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [])
+  // The reader stays mounted when another citation in the same file is opened.
+  // Navigate again after loading so long conversation/layout changes cannot hide it.
+  useEffect(() => {
+    if (loading) return
+    root.current?.focus({ preventScroll: true })
+    root.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [id, revision, loading])
 
   useEffect(() => {
     if (loading || !document) return
@@ -103,7 +109,7 @@ export default function DocumentReader({ id, revision, busy, onRetry, onClose, i
   const selectedBlock = document?.blocks.find(block => block.index === sourceBlock)
   const location = selectedBlock?.location
 
-  return <section className="reader" ref={root} aria-label={document?.filename || t('loadingDocument')}>
+  return <section className="reader" ref={root} tabIndex={-1} aria-label={document?.filename || t('loadingDocument')}>
     <div className="panel-heading"><h2>{document?.filename || t('loadingDocument')}</h2><button onClick={onClose}>{t('close')}</button></div>
     {loading && !document ? <p role="status">{t('loadingDocument')}</p> : failed || !document ? <p className="error" role="alert">{t('loadError')}</p> : <>
       <div className="reader-meta"><span>{document.block_count} {t('blocks')} · {document.chunk_count} {t('chunks')}</span>

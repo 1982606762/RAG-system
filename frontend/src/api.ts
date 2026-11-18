@@ -106,6 +106,7 @@ export type AnswerDepth = 'auto' | 'deep'
 export interface DocumentAnswer {
   paragraphs: { text: string; source_ids: string[] }[]
   limitations: string
+  notes?: string
   citations: Record<string, {
     document_id: string
     filename: string

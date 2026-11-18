@@ -57,7 +57,8 @@ TOOLS = [
                         "required": ["text", "source_ids"],
                     },
                 },
-                "limitations": {"type": "STRING"},
+                "limitations": {"type": "STRING", "description": "Specific missing or conflicting evidence that prevents answering the question fully. Empty string when the question is answered."},
+                "notes": {"type": "STRING", "description": "Brief interpretation or scope notes, such as estimate versus actual payment. Empty string when unnecessary; no additional uncited facts."},
             },
             "required": ["paragraphs", "limitations"],
         },
@@ -73,10 +74,23 @@ or similar passages need context. Search for different file types, dates, or wor
 For totals or comparisons, check periods, currencies, units, and duplicate records. Distinguish
 scheduled amounts from actual payments. Report conflicts and missing periods. Search returns a
 limited selection, so never imply that top hits cover the entire library. Label any supported
-subtotal as such and show the components. If evidence is missing, return no paragraphs and explain
-the gap. Put every factual claim in a paragraph with one or more actual source IDs from this
+subtotal as such and show the components. If no evidence supports an answer, return no paragraphs
+and explain the gap. Put every factual claim in a paragraph with one or more actual source IDs from this
 request. Use plain text and handle lists with line breaks. Put only coverage gaps in limitations.
-Do not repeat the user's query as a claim. Call submit_answer alone when the answer is ready.
+Do not repeat the user's query as a claim.
+Before reporting a gap, use remaining searches or read_context to look for the missing information
+in the relevant document, including its identification or address when needed. A retrieved excerpt
+omitting a detail does not mean the document omits it. Describe only what could not be verified.
+When a purchase contract states its price, answer the contract price. Do not add a gap solely
+because ownership has not been independently verified. If multiple properties or contracts make
+the intended property genuinely ambiguous, explain that specific ambiguity instead of guessing.
+Use limitations only for missing or conflicting evidence needed to answer this question; use an
+empty string if it is fully answered. Put interpretation and scope notes in notes, not limitations.
+For example, when asked what monthly costs a contract mentions, citing its estimated monthly
+costs answers the question; that estimates may differ from actual payments is a note, not a gap.
+When asked what was actually paid, missing payment records are a real gap. All factual claims,
+including amounts and document terms, still belong in cited paragraphs, never uncited notes.
+Call submit_answer alone when the answer is ready.
 """.strip()
 
 
@@ -88,6 +102,7 @@ class Paragraph(BaseModel):
 class Answer(BaseModel):
     paragraphs: list[Paragraph] = Field(max_length=12)
     limitations: str = Field(max_length=1800)
+    notes: str = Field(default="", max_length=1800)
 
 
 class Evidence:
@@ -171,6 +186,7 @@ class Evidence:
                     "locations": [{"block_index": block, "page": page} for block, page in locations],
                 }
         return {"paragraphs": answer.model_dump()["paragraphs"], "limitations": answer.limitations.strip(),
+                "notes": answer.notes.strip(),
                 "citations": citations}
 
 

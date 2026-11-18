@@ -94,8 +94,21 @@ class AnswerTests(unittest.TestCase):
             provider.generate.side_effect = turns
             result = self.ask()
         self.assertEqual(result.status_code, 200, result.text)
-        self.assertEqual(result.json(), {"paragraphs": [], "limitations": "只有型号，缺少付款凭证。", "citations": {}})
+        self.assertEqual(result.json(), {"paragraphs": [], "limitations": "只有型号，缺少付款凭证。", "notes": "", "citations": {}})
         self.assertNotIn("Invented", result.text)
+
+    def test_contract_estimate_notes_do_not_become_evidence_gaps(self):
+        turns = [turn(SEARCH, query="Ejerudgifter", mode="keyword"),
+                 turn(SUBMIT, paragraphs=[{"text": "合同预估每月业主支出为 3485 丹麦克朗。", "source_ids": ["S1"]}],
+                      limitations="", notes="  合同预估值不代表实际扣款。  ")]
+        with patch("answers.service.answer_profile", return_value=self.profile), patch("answers.service.Gemini") as gemini, \
+                patch("db.documents.search_chunks", return_value={"items": [hit("contract", "Ejerudgifter pr. md. 3.485")], "has_more": False}):
+            gemini.return_value.__enter__.return_value.generate.side_effect = turns
+            response = self.ask("合同有没有说每个月交多少钱？")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["limitations"], "")
+        self.assertEqual(response.json()["notes"], "合同预估值不代表实际扣款。")
+        self.assertEqual(response.json()["citations"]["S1"]["document_id"], "contract")
 
     def test_vertex_transport_requests_forced_tools(self):
         session = Mock()

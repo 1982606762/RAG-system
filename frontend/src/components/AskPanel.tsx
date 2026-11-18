@@ -152,7 +152,9 @@ export default function AskPanel({ onSelect }: { onSelect: (id: string, block: n
           })}
         </div>
       </div>)}
-      {turn.answer.limitations && <><h4>{t('askLimitations')}</h4><p>{turn.answer.limitations}</p></>}
+      {turn.answer.notes && <><h4>{t('askNotes')}</h4><p>{turn.answer.notes}</p></>}
+      {turn.answer.limitations && <><h4>{t(turn.answer.notes === undefined && turn.answer.paragraphs.length
+        ? 'askLegacyLimitations' : 'askLimitations')}</h4><p>{turn.answer.limitations}</p></>}
     </article>)}</div>
     <form className="conversation-form" onSubmit={event => { event.preventDefault(); void ask() }}>
       <textarea id="document-question" value={input} onChange={event => setInput(event.target.value)}

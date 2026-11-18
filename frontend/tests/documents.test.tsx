@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import WorkspacePage from '../src/pages/WorkspacePage'
 import DocumentReader from '../src/components/DocumentReader'
@@ -38,6 +38,32 @@ beforeEach(() => {
 })
 
 describe('Document workspace', () => {
+  it('separates interpretation notes from gaps and preserves legacy saved explanations', async () => {
+    const conversation = { id: 'notes-conversation', title: '合同费用', updated_at: '' }
+    const answer = { paragraphs: [{ text: '合同列有每月费用预估。', source_ids: ['S1'] }], citations: {},
+      limitations: '', notes: '合同预估值不代表实际扣款。' }
+    const turns = [
+      { id: 'estimate', question: '合同怎么写的？', depth: 'auto', answer },
+      { id: 'actual', question: '实际付了多少？', depth: 'auto',
+        answer: { ...answer, paragraphs: [], notes: '', limitations: '尚未找到付款凭证。' } },
+      { id: 'legacy', question: '旧答案', depth: 'auto',
+        answer: { paragraphs: answer.paragraphs, citations: {}, limitations: '请核实合同对应的房产。' } },
+    ]
+    vi.mocked(listConversations).mockResolvedValue({ data: { items: [conversation] } } as never)
+    vi.mocked(getConversation).mockResolvedValue({ data: { ...conversation, turns } } as never)
+    localStorage.setItem('rag-selected-conversation', conversation.id)
+    render(<WorkspacePage />)
+    const estimate = (await screen.findByRole('heading', { name: '合同怎么写的？' })).closest('article')!
+    expect(within(estimate).getByRole('heading', { name: '说明', exact: true })).toBeVisible()
+    expect(within(estimate).queryByRole('heading', { name: '资料缺口' })).not.toBeInTheDocument()
+    const actual = screen.getByRole('heading', { name: '实际付了多少？' }).closest('article')!
+    expect(within(actual).getByRole('heading', { name: '资料缺口' })).toBeVisible()
+    expect(within(actual).getByText('尚未找到付款凭证。')).toBeVisible()
+    const legacy = screen.getByRole('heading', { name: '旧答案' }).closest('article')!
+    expect(within(legacy).getByRole('heading', { name: '说明与待核实信息' })).toBeVisible()
+    expect(within(legacy).getByText('请核实合同对应的房产。')).toBeVisible()
+  })
+
   it('restores three saved turns, submits a follow-up and opens its citation', async () => {
     const conversation = { id: 'test-conversation', title: '多久清洗一次？', updated_at: '' }
     const answer = {

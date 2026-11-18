@@ -84,4 +84,25 @@ describe('Original source navigation', () => {
     expect(screen.getByText(/已打开来源页/)).toBeVisible()
     expect(container.querySelector('.source-region')).toBeNull()
   })
+
+  it('scrolls and focuses the reader again for the same PDF citation without a region', async () => {
+    vi.mocked(getDocument).mockResolvedValue({ data: { ...document, extension: '.pdf', filename: 'manual.pdf', page_count: 3,
+      blocks: [{ ...document.blocks[0], page: 2, location: null }] } } as never)
+    const props = { id: document.id, initialBlock: 0, revision: 0, busy: false, onRetry: vi.fn(), onClose: vi.fn() }
+    const { rerender } = render(<DocumentReader {...props} />)
+    await screen.findByRole('img', { name: 'manual.pdf · 页 2' })
+    const reader = screen.getByRole('region', { name: 'manual.pdf' })
+    expect(reader).toHaveFocus()
+    const scroll = vi.spyOn(reader, 'scrollIntoView')
+    scroll.mockClear()
+    reader.blur()
+
+    // Clicking the identical source increments revision without remounting the reader.
+    rerender(<DocumentReader {...props} revision={1} />)
+    await waitFor(() => expect(getDocument).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(scroll).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' }))
+    expect(reader).toHaveFocus()
+    expect(screen.getByText('页 2 / 3')).toBeVisible()
+    expect(screen.queryByRole('img', { name: '引用的原文区域' })).not.toBeInTheDocument()
+  })
 })

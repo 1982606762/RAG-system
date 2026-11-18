@@ -72,6 +72,7 @@ jobs:
             sleep 1
           done
           python frontend/tests/mvp_smoke.py
+          python frontend/tests/citation_navigation.py
           RAG_VERIFY_URL=http://127.0.0.1:3000 python scripts/verify-deployment.py
       - name: Preserve browser diagnostics
         if: always()
