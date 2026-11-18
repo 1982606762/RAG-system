@@ -7,16 +7,17 @@ from documents.models import DocumentError
 from embeddings.provider import DIMENSIONS, active_profile
 
 
-def has_searchable_embeddings(profile):
+def has_searchable_embeddings(profile, document_id=None):
     with store.connect() as conn:
         return conn.execute("""SELECT EXISTS (
             SELECT 1 FROM knowledge_base_v1.embedding_runs r
             JOIN knowledge_base_v1.documents d ON d.id=r.document_id
             WHERE r.profile=%s AND r.status='ready' AND r.vector_count>0 AND d.status='ready'
-        ) AS available""", (profile.key,)).fetchone()['available']
+                AND (%s::uuid IS NULL OR d.id=%s::uuid)
+        ) AS available""", (profile.key, document_id, document_id)).fetchone()['available']
 
 
-def search_chunks(profile, vector, limit, offset):
+def search_chunks(profile, vector, limit, offset, document_id=None):
     # Several vector parts may represent one chunk. Rank by the closest part
     # and apply pagination to chunks, preserving their original source links.
     with store.connect() as conn:
@@ -26,6 +27,7 @@ def search_chunks(profile, vector, limit, offset):
             JOIN knowledge_base_v1.embedding_runs r USING (document_id, profile)
             JOIN knowledge_base_v1.documents d ON d.id=p.document_id
             WHERE p.profile=%s AND p.embedding IS NOT NULL AND r.status='ready' AND d.status='ready'
+                AND (%s::uuid IS NULL OR d.id=%s::uuid)
             GROUP BY p.document_id, p.chunk_index
         )
         SELECT d.id AS document_id, d.filename, c.chunk_index, c.data AS chunk
@@ -33,7 +35,8 @@ def search_chunks(profile, vector, limit, offset):
         JOIN knowledge_base_v1.chunks c USING (document_id, chunk_index)
         JOIN knowledge_base_v1.documents d ON d.id=c.document_id
         ORDER BY ranked.distance, d.created_at DESC, d.id, c.chunk_index
-        LIMIT %s OFFSET %s""", (_vector_literal(vector), profile.key, limit + 1, offset)).fetchall()
+        LIMIT %s OFFSET %s""", (_vector_literal(vector), profile.key, document_id,
+                                document_id, limit + 1, offset)).fetchall()
     return {"items": rows[:limit], "has_more": len(rows) > limit}
 
 

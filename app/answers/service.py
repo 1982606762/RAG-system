@@ -1,5 +1,6 @@
 """Bounded, read-only Gemini tool loop over the owner's documents."""
 
+import json
 import time
 
 from pydantic import BaseModel, Field
@@ -24,6 +25,8 @@ TOOLS = [
                 "query": {"type": "STRING", "description": "1–200 characters. Use short, distinctive terms in keyword mode."},
                 "mode": {"type": "STRING", "enum": ["keyword", "semantic"],
                          "description": "Keyword matches literals like identifiers. Semantic searches by meaning."},
+                "document_ref": {"type": "STRING",
+                                 "description": "Optional D-number from conversation history to search only that document."},
             },
             "required": ["query", "mode"],
         },
@@ -88,8 +91,9 @@ class Answer(BaseModel):
 
 
 class Evidence:
-    def __init__(self, deadline):
+    def __init__(self, deadline, documents_by_ref):
         self.deadline = deadline
+        self.documents_by_ref = documents_by_ref
         self.hits = {}
         self.ids = {}
 
@@ -125,13 +129,19 @@ class Evidence:
 
         query = args.get("query")
         mode = args.get("mode")
+        reference = args.get("document_ref")
+        scope = {}
+        if reference is not None:
+            if not isinstance(reference, str) or reference not in self.documents_by_ref:
+                return {"error": "Use a document reference from the conversation history or omit it."}
+            scope = {"document_id": self.documents_by_ref[reference]}
         if not isinstance(query, str) or not 1 <= len(query.strip()) <= 200 or "\x00" in query:
             return {"error": "Provide a query of 1–200 characters."}
         try:
             if mode == "keyword":
-                result = documents.search_chunks(query, limit, 0)
+                result = documents.search_chunks(query, limit, 0, **scope)
             elif mode == "semantic":
-                result = semantic_search(query.strip(), limit, deadline=self.deadline)
+                result = semantic_search(query.strip(), limit, deadline=self.deadline, **scope)
             else:
                 return {"error": "Select keyword or semantic mode."}
         except DocumentError as exc:
@@ -164,18 +174,47 @@ class Evidence:
                 "citations": citations}
 
 
-def answer_question(question, depth):
+def conversation_context(history):
+    references = {}
+    summaries = []
+    for turn in reversed(history):
+        answer = turn["answer"]
+        documents_used = {}
+        for citation in answer["citations"].values():
+            document_id = citation["document_id"]
+            if document_id not in references and len(references) >= 8:
+                continue
+            reference = references.setdefault(document_id, f"D{len(references) + 1}")
+            documents_used[reference] = citation["filename"][:160]
+        summaries.append({
+            "question": turn["question"][:500],
+            "answer_excerpt": "\n".join(paragraph["text"] for paragraph in answer["paragraphs"])[:600],
+            "previously_cited_documents": documents_used,
+        })
+    return summaries[::-1], {reference: doc for doc, reference in references.items()}
+
+
+def answer_question(question, depth, *, history=()):
     profile = answer_profile()
     if profile is None:
         raise DocumentError("answer_disabled", "资料问答尚未配置 Gemini。", 503)
     deep = depth == "deep"
     deadline = time.monotonic() + (100 if deep else 65)
-    evidence = Evidence(deadline)
-    contents = [{"role": "user", "parts": [{"text": question}]}]
+    summaries, documents_by_ref = conversation_context(history)
+    evidence = Evidence(deadline, documents_by_ref)
     instruction = INSTRUCTION + (
         "\nDeep review: check surrounding context and use independent searches across relevant files."
         if deep else "\nAutomatic review: stop when there is sufficient evidence, and search again for complex questions."
     )
+    prompt = question
+    if summaries:
+        instruction += (
+            "\nThe user message contains conversation history and the current question. Use history only to"
+            " resolve follow-up references. For the same document, search with its document_ref first."
+            " Previous answers are not evidence. Search again and cite only current source IDs."
+        )
+        prompt = json.dumps({"recent_history": summaries, "current_question": question}, ensure_ascii=False)
+    contents = [{"role": "user", "parts": [{"text": prompt}]}]
     retrieval_rounds = 6 if deep else 4
 
     with Gemini(profile, deadline) as gemini:

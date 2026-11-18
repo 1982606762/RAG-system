@@ -4,11 +4,12 @@ import userEvent from '@testing-library/user-event'
 import WorkspacePage from '../src/pages/WorkspacePage'
 import DocumentReader from '../src/components/DocumentReader'
 import { useLang } from '../src/i18n'
-import { askDocuments, getDocument, getOriginal, getPagePreview, listDocuments, searchDocuments, uploadDocument, type DocumentDetail } from '../src/api'
+import { deleteConversation, getConversation, listConversations, saveConversationTurn, getDocument, getOriginal, getPagePreview, listDocuments, searchDocuments, uploadDocument, type DocumentDetail } from '../src/api'
 
 vi.mock('../src/api', () => ({
   getDocument: vi.fn(), getOriginal: vi.fn(), getPagePreview: vi.fn(), listDocuments: vi.fn(),
-  retryDocument: vi.fn(), uploadDocument: vi.fn(), searchDocuments: vi.fn(), createEmbeddings: vi.fn(), askDocuments: vi.fn(),
+  retryDocument: vi.fn(), uploadDocument: vi.fn(), searchDocuments: vi.fn(), createEmbeddings: vi.fn(),
+  deleteConversation: vi.fn(), getConversation: vi.fn(), listConversations: vi.fn(), saveConversationTurn: vi.fn(),
 }))
 
 const document: DocumentDetail = {
@@ -27,6 +28,8 @@ const document: DocumentDetail = {
 beforeEach(() => {
   vi.resetAllMocks()
   useLang.setState({ lang: 'zh' })
+  localStorage.removeItem('rag-selected-conversation')
+  vi.mocked(listConversations).mockResolvedValue({ data: { items: [] } } as never)
   vi.mocked(listDocuments).mockResolvedValue({ data: { items: [], total: 0 } } as never)
   vi.mocked(getDocument).mockResolvedValue({ data: document } as never)
   vi.mocked(getOriginal).mockResolvedValue({ data: new Blob(['Original']) } as never)
@@ -35,21 +38,39 @@ beforeEach(() => {
 })
 
 describe('Document workspace', () => {
-  it('submits a deep question and opens the verified citation in the original', async () => {
-    vi.mocked(askDocuments).mockResolvedValue({ data: {
+  it('restores three saved turns, submits a follow-up and opens its citation', async () => {
+    const conversation = { id: 'test-conversation', title: '多久清洗一次？', updated_at: '' }
+    const answer = {
       paragraphs: [{ text: '每月清洗一次。', source_ids: ['S1'] }],
       citations: { S1: { document_id: document.id, filename: document.filename, locations: [{ block_index: 1, page: 2 }] } },
       limitations: '特殊环境的周期未注明。',
-    } } as never)
+    }
+    const turns = ['多久清洗一次？', '哪里写的？', '潮湿环境呢？'].map((question, index) =>
+      ({ id: `turn-${index}`, question, depth: 'auto', answer: { ...answer, paragraphs: [], limitations: '已保存的答案' } }))
+    const next = { id: 'fourth', question: '那一般情况呢？', depth: 'deep', answer }
+    vi.mocked(listConversations).mockResolvedValue({ data: { items: [conversation] } } as never)
+    vi.mocked(getConversation).mockResolvedValue({ data: { ...conversation, turns } } as never)
+    vi.mocked(saveConversationTurn).mockResolvedValue({ data: { conversation, turn: next } } as never)
+    localStorage.setItem('rag-selected-conversation', conversation.id)
     const { container } = render(<WorkspacePage />)
-    await userEvent.type(screen.getByRole('textbox', { name: '向资料提问' }), '多久清洗一次？')
+    expect(await screen.findByRole('heading', { name: '潮湿环境呢？' })).toBeVisible()
+    await userEvent.type(screen.getByRole('textbox', { name: '向资料提问' }), next.question)
     await userEvent.selectOptions(screen.getByRole('combobox', { name: '查询深度' }), 'deep')
     await userEvent.click(screen.getByRole('button', { name: '提问', exact: true }))
     expect(await screen.findByText('每月清洗一次。')).toBeVisible()
     expect(screen.getByText('特殊环境的周期未注明。')).toBeVisible()
-    expect(askDocuments).toHaveBeenCalledWith('多久清洗一次？', 'deep', expect.any(AbortSignal))
+    expect(saveConversationTurn).toHaveBeenCalledWith(conversation.id, next.question, 'deep',
+      expect.any(String), 'turn-2', expect.any(AbortSignal))
     await userEvent.click(screen.getByRole('button', { name: /\[S1\] manual.md/ }))
     await waitFor(() => expect(container.querySelector('.highlighted')).toHaveTextContent('每月清洁滤网'))
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.mocked(deleteConversation).mockResolvedValue({} as never)
+    try {
+      await userEvent.click(screen.getByRole('button', { name: '删除会话' }))
+      await waitFor(() => expect(screen.queryByText('每月清洗一次。')).not.toBeInTheDocument())
+      expect(deleteConversation).toHaveBeenCalledWith(conversation.id, expect.any(AbortSignal))
+      expect(localStorage.getItem('rag-selected-conversation')).toBeNull()
+    } finally { confirm.mockRestore() }
   })
 
   it('ignores an older search response after a new search completes', async () => {

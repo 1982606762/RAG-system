@@ -87,7 +87,7 @@ class ShellTests(unittest.TestCase):
             ("POST", "/api/auth/register"), ("GET", "/api/auth/config"),
             ("POST", "/api/upload"),
             ("POST", "/api/upload_async"), ("GET", "/api/tasks/old-task"),
-            ("GET", "/api/conversations"), ("GET", "/api/traces"),
+            ("GET", "/api/traces"),
             ("GET", "/api/models"),
         ]
         for method, path in routes:

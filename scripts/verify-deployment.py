@@ -18,8 +18,10 @@ except urllib.error.HTTPError as error:
 
 headers = {'Authorization': 'Bearer ' + create_access_token()}
 marker = str(uuid.uuid4())
+conversation_id = str(uuid.uuid4())
 filename = f'deployment-check-{marker}.txt'
-payload = f'Deployment verification {marker}\n\nThis document verifies parsing and chunking.\n'.encode()
+payload = (f'Deployment verification {marker}\n\nThis document verifies parsing and chunking.\n\n'
+           'Review frequency: once a month. Retention period: 90 days.\n').encode()
 boundary = 'rag-' + marker
 body = (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{filename}"\r\n'
         'Content-Type: text/plain\r\n\r\n').encode() + payload + f'\r\n--{boundary}--\r\n'.encode()
@@ -27,6 +29,16 @@ request = urllib.request.Request(base + '/api/documents', data=body, headers={
     **headers, 'Content-Type': 'multipart/form-data; boundary=' + boundary
 })
 document_id = None
+
+
+def conversation_request(path='', body=None):
+    request_headers = headers if body is None else {**headers, 'Content-Type': 'application/json'}
+    data = None if body is None else json.dumps(body).encode()
+    request = urllib.request.Request(base + '/api/conversations' + path, data=data, headers=request_headers)
+    with urllib.request.urlopen(request, timeout=130) as response:
+        return json.load(response)
+
+
 try:
     with urllib.request.urlopen(request, timeout=150) as response:
         result = json.load(response)
@@ -49,28 +61,39 @@ try:
     with urllib.request.urlopen(urllib.request.Request(base + '/api/search?' + query, headers=headers)) as response:
         assert any(hit['document_id'] == document_id for hit in json.load(response)['items']), 'Search cannot find uploaded fixture'
     question = f'What does the document containing {marker} verify? Use the exact marker as the only keyword when searching.'
-    ask = urllib.request.Request(base + '/api/ask', data=json.dumps({'question': question}).encode(), headers={
-        **headers, 'Content-Type': 'application/json',
-    })
+    first = {'question': question, 'request_id': conversation_id}
     if answer_profile() is None:
         try:
-            urllib.request.urlopen(ask, timeout=130).close()
+            conversation_request(body=first)
             raise AssertionError('Unconfigured Gemini unexpectedly accepted a question')
         except urllib.error.HTTPError as error:
             assert error.code == 503 and json.load(error).get('code') == 'answer_disabled'
     else:
         try:
-            with urllib.request.urlopen(ask, timeout=130) as response:
-                answer = json.load(response)
-                cited = any(source['document_id'] == document_id for source in answer['citations'].values())
-                print('Gemini question verification:', 'fixture cited' if cited else 'fixture not cited')
+            conversation = '/' + conversation_id
+            result = conversation_request(body=first)
+            assert result['conversation']['id'] == conversation_id
+            for index, follow_up in enumerate((
+                'How often is it reviewed? Search the same document using the keyword frequency.',
+                'What about its retention period? Search the same document using the keyword retention.',
+            ), start=1):
+                saved = conversation_request(conversation)['turns']
+                assert len(saved) == index
+                result = conversation_request(conversation + '/turns', {
+                    'question': follow_up, 'request_id': str(uuid.uuid4()), 'after_turn_id': saved[-1]['id'],
+                })
+            saved = conversation_request(conversation)['turns']
+            assert len(saved) == 3 and saved[-1]['id'] == result['turn']['id']
+            cited = sum(any(source['document_id'] == document_id for source in turn['answer']['citations'].values())
+                        for turn in saved)
+            print(f'Gemini conversation verification: {cited}/3 turns cited the fixture')
         except urllib.error.HTTPError as error:
             if error.code not in (502, 503, 504):
                 raise
             # A hosted model outage should not roll back a healthy document library.
-            print('Gemini question verification: unavailable (HTTP', error.code, ')')
+            print('Gemini conversation verification: unavailable (HTTP', error.code, ')')
         except (TimeoutError, urllib.error.URLError):
-            print('Gemini question verification: connection unavailable')
+            print('Gemini conversation verification: connection unavailable')
     missing_page = base + '/api/documents/' + str(uuid.uuid4()) + '/pages/1/preview'
     try:
         urllib.request.urlopen(urllib.request.Request(missing_page, headers=headers))
@@ -85,6 +108,7 @@ finally:
     from pathlib import Path
     from core.config import DOCUMENTS_DIR
     with connect() as conn:
+        conn.execute('DELETE FROM knowledge_base_v1.conversations WHERE id = %s', (conversation_id,))
         rows = conn.execute('DELETE FROM knowledge_base_v1.documents WHERE filename = %s RETURNING id', (filename,)).fetchall()
     for row in rows:
         (DOCUMENTS_DIR / f'{row["id"]}.txt').unlink(missing_ok=True)

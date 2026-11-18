@@ -18,6 +18,7 @@ from core import config
 from db import documents as store
 from documents.models import Block, Chunk, DocumentError, ParsedDocument
 from embeddings.provider import InputTooLong, active_profile
+from embeddings.retrieval import semantic_search
 from embeddings.service import index_document
 
 VECTOR = [1.0] + [0.0] * 767
@@ -130,6 +131,21 @@ class EmbeddingIntegrationTests(unittest.TestCase):
             conn.execute("""UPDATE knowledge_base_v1.chunks SET data=jsonb_set(data, '{text}', to_jsonb('已改变'::text))
                 WHERE document_id=%s AND chunk_index=1""", (identifier,))
         self.assertEqual(store.read_chunk_context(anchor), [])
+
+    def test_scoped_semantic_search_only_uses_vectors_from_the_requested_document(self):
+        target = self.create(['目标合同'])
+        self.index(target, [(ORTHOGONAL_VECTOR, 4)])
+        other = self.create(['更相似的另一份合同'])
+        self.index(other)
+        unindexed = self.create(['尚未生成向量的合同'])
+        with patch('embeddings.retrieval.VertexEmbedder') as provider:
+            provider.return_value.__enter__.return_value.embed.return_value = (VECTOR, 4)
+            result = semantic_search('付款条款', 4, document_id=target)
+            self.assertEqual([hit['document_id'] for hit in result['items']], [target])
+            with self.assertRaises(DocumentError) as caught:
+                semantic_search('付款条款', 4, document_id=unindexed)
+            self.assertEqual(caught.exception.code, 'semantic_index_empty')
+            provider.assert_called_once()
 
     def test_overlong_input_is_split_and_completed_children_are_reused(self):
         identifier = self.create(['abcd'])

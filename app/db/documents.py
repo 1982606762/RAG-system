@@ -67,7 +67,7 @@ def list_documents(limit: int, offset: int):
         return {"items": rows, "total": total}
 
 
-def search_chunks(query: str, limit: int, offset: int):
+def search_chunks(query: str, limit: int, offset: int, *, document_id=None):
     query = query.strip()
     terms = list(dict.fromkeys(query.split()))
     if not terms or len(terms) > 10 or '\x00' in query:
@@ -79,13 +79,13 @@ def search_chunks(query: str, limit: int, offset: int):
                 c.chunk_index, c.data AS chunk
             FROM knowledge_base_v1.chunks c
             JOIN knowledge_base_v1.documents d ON d.id=c.document_id
-            WHERE d.status='ready' AND NOT EXISTS (
+            WHERE d.status='ready' AND (%s::uuid IS NULL OR d.id=%s::uuid) AND NOT EXISTS (
                 SELECT 1 FROM unnest(%s::text[]) AS terms(term)
                 WHERE strpos(lower(c.data->>'text'), lower(term))=0
             )
             ORDER BY (strpos(lower(c.data->>'text'), lower(%s)) > 0) DESC,
                 d.created_at DESC, d.id, c.chunk_index
-            LIMIT %s OFFSET %s""", (terms, query, limit + 1, offset)).fetchall()
+            LIMIT %s OFFSET %s""", (document_id, document_id, terms, query, limit + 1, offset)).fetchall()
     return {"items": rows[:limit], "has_more": len(rows) > limit}
 
 

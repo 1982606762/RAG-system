@@ -113,8 +113,39 @@ export interface DocumentAnswer {
   }>
 }
 
-export const askDocuments = (question: string, depth: AnswerDepth, signal: AbortSignal) =>
-  http.post<DocumentAnswer>('/api/ask', { question, depth }, { signal, timeout: 125000 })
+export interface SavedConversation {
+  id: string
+  title: string
+  updated_at: string
+}
+
+export interface ConversationTurn {
+  id: string
+  question: string
+  depth: AnswerDepth
+  answer: DocumentAnswer
+}
+
+export interface Conversation extends SavedConversation {
+  turns: ConversationTurn[]
+}
+
+export const listConversations = (signal: AbortSignal) =>
+  http.get<{ items: SavedConversation[] }>('/api/conversations', { signal })
+
+export const getConversation = (id: string, signal: AbortSignal) =>
+  http.get<Conversation>(`/api/conversations/${id}`, { signal })
+
+export const deleteConversation = (id: string, signal: AbortSignal) =>
+  http.delete(`/api/conversations/${id}`, { signal })
+
+export const saveConversationTurn = (
+  id: string | null, question: string, depth: AnswerDepth, request_id: string,
+  after_turn_id: string | undefined, signal: AbortSignal,
+) => http.post<{ conversation: SavedConversation; turn: ConversationTurn }>(
+  id ? `/api/conversations/${id}/turns` : '/api/conversations',
+  { question, depth, request_id, after_turn_id }, { signal, timeout: 125000 },
+)
 
 export const listDocuments = (offset = 0) => http.get<{ items: DocumentRecord[]; total: number }>(
   '/api/documents', { params: { limit: 30, offset } },

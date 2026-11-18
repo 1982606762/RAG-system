@@ -79,7 +79,12 @@ docker compose stop celery_worker redis chroma
 | 接口 | 用途 |
 | --- | --- |
 | `POST /api/auth/login` | 单密码换取 JWT |
-| `POST /api/ask` | 通过 Gemini 查询资料并生成带原文引用的回答 |
+| `POST /api/ask` | 不保存的单次文档问答 |
+| `GET /api/conversations` | 列出已保存会话 |
+| `POST /api/conversations` | 用首问和 `request_id` 创建会话 |
+| `GET /api/conversations/{id}` | 读取会话及问答引用 |
+| `POST /api/conversations/{id}/turns` | 用 `request_id` 和 `after_turn_id` 提交追问 |
+| `DELETE /api/conversations/{id}` | 删除会话及问答记录 |
 | `GET /api/auth/me` | 校验主人会话 |
 | `GET /api/health` | 数据库连通性，无认证 |
 | `GET /api/documents?limit=30&offset=0` | 分页列表，最大每页 100 条 |
@@ -98,7 +103,7 @@ docker compose stop celery_worker redis chroma
 页面请求超时或关闭不代表后端已经停止处理；重新打开列表并刷新状态。
 在没有活跃入库锁时，读取列表/详情或开始新处理会将中断的 `processing` 标记为失败，等待手动重试。
 
-旧 `/api/upload`、注册、任务、对话、模型选择与追踪接口不再使用。
+旧 `/api/upload`、注册、任务、模型选择与追踪接口不再使用。
 修改密码不会撤销已签发 token；需要全员重新登录时轮换 `JWT_SECRET`。
 
 ## 本地开发
