@@ -11,10 +11,16 @@ const errorMessages = new Map([
   ['answer_disabled', 'askDisabled'],
   ['answer_configuration', 'askConfiguration'],
   ['answer_timeout', 'askTimeout'],
+  ['answer_unavailable', 'askUnavailable'],
+  ['answer_rate_limited', 'askRateLimited'],
+  ['answer_response', 'askResponseError'],
+  ['database_unavailable', 'askStorageError'],
+  ['schema_missing', 'schemaMissing'],
   ['conversation_conflict', 'conversationConflict'],
   ['conversation_missing', 'conversationMissing'],
 ] as const)
 
+const retryableErrors = new Set(['askUnavailable', 'askRateLimited', 'askResponseError', 'askStorageError', 'askTimeout', 'askError'])
 const selectedKey = 'rag-selected-conversation'
 
 export default function AskPanel({ onSelect, onBrowse, hasDocuments = true }: {
@@ -201,7 +207,9 @@ export default function AskPanel({ onSelect, onBrowse, hasDocuments = true }: {
       </div>
       <small id="ask-hint"><Icon name="lock" size={12} />{t('askHint')}</small>
     </form>
-    {error && <p className="feedback error" role="alert">{t(error)}</p>}
+    {error && <div className="feedback error" role="alert"><span>{t(error)}</span>
+      {retryableErrors.has(error) && <button disabled={!!busy || !input.trim()} onClick={ask}>{t('retry')}</button>}
+    </div>}
     {error === 'conversationConflict' && active && <button onClick={reload}>{t('refresh')}</button>}
   </section>
 }

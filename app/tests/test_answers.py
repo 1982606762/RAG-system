@@ -205,6 +205,16 @@ class AnswerTests(unittest.TestCase):
         context.assert_called_once_with(schedule)
         self.assertEqual(result.json()["citations"]["S2"]["locations"], [{"block_index": 4, "page": 5}])
 
+    def test_answer_errors_log_only_the_route_status_and_code(self):
+        from documents.models import DocumentError
+        with patch('api.answers.answer_question', side_effect=DocumentError('answer_unavailable', 'temporary', 503)), \
+                self.assertLogs('main', level='WARNING') as logs:
+            response = self.ask('private-test-marker')
+        self.assertEqual(response.status_code, 503)
+        text = '\n'.join(logs.output)
+        self.assertIn('route=/api/ask status=503 code=answer_unavailable', text)
+        self.assertNotIn('private-test-marker', text)
+
     def test_vertex_transport_requests_forced_tools(self):
         session = Mock()
         session.post.return_value = Mock(ok=True, status_code=200, json=Mock(return_value={"candidates": [
@@ -221,3 +231,102 @@ class AnswerTests(unittest.TestCase):
         self.assertEqual(request.kwargs["json"]["toolConfig"]["functionCallingConfig"],
                          {"mode": "ANY", "allowedFunctionNames": [SEARCH]})
         session.close.assert_called_once()
+
+
+class GeminiResilienceTests(unittest.TestCase):
+    def setUp(self):
+        self.now = 100.0
+        self.session = Mock()
+        self.enterContext(patch('answers.provider.google.auth.default', return_value=(Mock(), 'project')))
+        self.enterContext(patch('answers.provider.AuthorizedSession', return_value=self.session))
+        self.enterContext(patch('answers.provider.time.monotonic', side_effect=lambda: self.now))
+        self.enterContext(patch('answers.provider.random.uniform', return_value=0))
+        self.sleep = self.enterContext(patch('answers.provider.time.sleep', side_effect=self.advance))
+        self.model = self.enterContext(Gemini(Profile('answer-test', 'global', 'test-model'), 130))
+        self.contents = [{'role': 'user', 'parts': [{'text': 'private-test-marker'}]}]
+
+    def advance(self, seconds):
+        self.now += seconds
+
+    def response(self, status):
+        return Mock(status_code=status, ok=status < 400, json=Mock(return_value={'candidates': [
+            {'finishReason': 'STOP', 'content': turn(SEARCH, query='test', mode='keyword')}
+        ]}))
+
+    def generate(self):
+        return self.model.generate(self.contents, 'instruction', TOOLS, [SEARCH])
+
+    def test_transient_errors_recover_with_backoff_and_the_identical_request(self):
+        responses = [self.response(status) for status in (503, 429, 200)]
+        self.session.post.side_effect = responses
+        with self.assertLogs('answers.provider', level='WARNING') as logs:
+            result = self.generate()
+        self.assertEqual(result['parts'][0]['functionCall']['name'], SEARCH)
+        self.assertEqual(self.sleep.call_args_list, [unittest.mock.call(1), unittest.mock.call(2)])
+        requests = self.session.post.call_args_list
+        self.assertEqual([call.kwargs['max_allowed_time'] for call in requests], [30, 29, 27])
+        self.assertTrue(all(call.kwargs['json'] == requests[0].kwargs['json'] for call in requests))
+        self.assertNotIn('private-test-marker', '\n'.join(logs.output))
+        responses[0].close.assert_called_once()
+        responses[1].close.assert_called_once()
+
+    def test_repeated_outages_stop_after_two_retries(self):
+        from documents.models import DocumentError
+        self.session.post.return_value = self.response(503)
+        with self.assertLogs('answers.provider', level='WARNING'), self.assertRaises(DocumentError) as error:
+            self.generate()
+        self.assertEqual(error.exception.code, 'answer_unavailable')
+        self.assertEqual(self.session.post.call_count, 3)
+        self.assertEqual(self.sleep.call_count, 2)
+
+    def test_rate_limits_keep_a_distinct_error_code(self):
+        from documents.models import DocumentError
+        self.session.post.return_value = self.response(429)
+        with self.assertLogs('answers.provider', level='WARNING'), self.assertRaises(DocumentError) as error:
+            self.generate()
+        self.assertEqual(error.exception.code, 'answer_rate_limited')
+        self.assertEqual(error.exception.status, 503)
+        self.assertEqual(self.session.post.call_count, 3)
+
+    def test_retry_budget_is_shared_across_model_tool_rounds(self):
+        from documents.models import DocumentError
+        self.session.post.side_effect = [self.response(status) for status in (503, 200, 503, 503)]
+        with self.assertLogs('answers.provider', level='WARNING'):
+            self.generate()
+            with self.assertRaises(DocumentError):
+                self.generate()
+        self.assertEqual(self.session.post.call_count, 4)
+        self.assertEqual(self.sleep.call_count, 2)
+        self.assertEqual(self.model.retries, 2)
+
+    def test_authentication_and_invalid_requests_are_not_retried(self):
+        from documents.models import DocumentError
+        for status, code in ((401, 'answer_configuration'), (403, 'answer_configuration'),
+                             (404, 'answer_configuration'), (400, 'answer_response')):
+            with self.subTest(status=status):
+                self.session.post.reset_mock()
+                self.session.post.return_value = self.response(status)
+                with self.assertRaises(DocumentError) as error:
+                    self.generate()
+                self.assertEqual(error.exception.code, code)
+                self.session.post.assert_called_once()
+        self.sleep.assert_not_called()
+
+    def test_insufficient_deadline_does_not_sleep_or_retry(self):
+        from documents.models import DocumentError
+        self.now = 128.5
+        self.session.post.return_value = self.response(503)
+        with self.assertLogs('answers.provider', level='WARNING'), self.assertRaises(DocumentError) as error:
+            self.generate()
+        self.assertEqual(error.exception.code, 'answer_unavailable')
+        self.session.post.assert_called_once()
+        self.sleep.assert_not_called()
+
+    def test_expired_deadline_stops_before_the_next_attempt(self):
+        from documents.models import DocumentError
+        self.session.post.return_value = self.response(503)
+        self.sleep.side_effect = lambda _: self.advance(31)
+        with self.assertLogs('answers.provider', level='WARNING'), self.assertRaises(DocumentError) as error:
+            self.generate()
+        self.assertEqual(error.exception.code, 'answer_timeout')
+        self.session.post.assert_called_once()

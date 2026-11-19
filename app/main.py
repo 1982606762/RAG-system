@@ -1,6 +1,7 @@
 """FastAPI application for the single-owner document MVP."""
 
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -14,6 +15,8 @@ from api.answers import router as answers_router
 from api.conversations import router as conversations_router
 from core.config import validate_config
 from documents.models import DocumentError
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -33,11 +36,16 @@ app.include_router(conversations_router)
 
 @app.exception_handler(DocumentError)
 async def document_error_handler(request, exc):
+    if exc.status >= 500:
+        logger.warning("Request failed: route=%s status=%s code=%s",
+                       getattr(request.scope.get("route"), "path", "unknown"), exc.status, exc.code)
     return JSONResponse(status_code=exc.status, content={"detail": str(exc), "code": exc.code})
 
 
 @app.exception_handler(psycopg.Error)
 async def database_error_handler(request, exc):
+    logger.error("Database request failed: route=%s error_type=%s",
+                 getattr(request.scope.get("route"), "path", "unknown"), type(exc).__name__)
     missing_schema = isinstance(exc, (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName))
     return JSONResponse(status_code=503, content={
         "detail": "请先运行 python cli.py init-db 初始化文档数据库。" if missing_schema else "数据库暂时不可用，请稍后重试。",

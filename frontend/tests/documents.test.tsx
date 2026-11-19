@@ -200,6 +200,31 @@ describe('Document workspace', () => {
     expect(await screen.findByRole('heading', { name: 'manual.md' })).toBeVisible()
   })
 
+  it.each([
+    ['answer_unavailable', 'Gemini 暂时不可用'],
+    ['answer_rate_limited', '模型服务当前请求受限'],
+    ['answer_response', '模型请求或答案格式异常'],
+    ['database_unavailable', '会话存储暂时不可用'],
+  ])('explains %s, preserves the draft, and retries the same logical turn', async (code, message) => {
+    const conversation = { id: 'retry-conversation', title: '维护周期', updated_at: '' }
+    vi.mocked(saveConversationTurn).mockRejectedValueOnce({ isAxiosError: true, response: { data: { code } } })
+      .mockResolvedValueOnce({ data: { conversation, turn: { id: 'retry-turn', question: '维护周期？', depth: 'auto',
+        answer: { paragraphs: [], citations: {}, limitations: '资料尚未说明。' } } } } as never)
+    render(<WorkspacePage />)
+    const input = screen.getByRole('textbox', { name: '向资料提问' })
+    await waitFor(() => expect(input).not.toHaveAttribute('readonly'))
+    await userEvent.type(input, '维护周期？')
+    await userEvent.click(screen.getByRole('button', { name: '提问', exact: true }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(message)
+    expect(input).toHaveValue('维护周期？')
+    const first = vi.mocked(saveConversationTurn).mock.calls[0]
+    await userEvent.click(within(screen.getByRole('alert')).getByRole('button', { name: '重试' }))
+    expect(await screen.findByText('资料尚未说明。')).toBeVisible()
+    const second = vi.mocked(saveConversationTurn).mock.calls[1]
+    expect(second.slice(0, 5)).toEqual(first.slice(0, 5))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('keeps drafts and search results when switching workspaces', async () => {
     vi.mocked(searchDocuments).mockResolvedValue({ data: { items: [], has_more: false } } as never)
     render(<WorkspacePage />)
