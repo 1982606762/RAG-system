@@ -37,6 +37,10 @@ beforeEach(() => {
   URL.createObjectURL = vi.fn(() => 'blob:test-original')
 })
 
+async function navigate(name: '资料库' | '搜索' | '资料问答') {
+  await userEvent.click(within(screen.getByRole('navigation')).getByRole('button', { name: new RegExp(name) }))
+}
+
 describe('Document workspace', () => {
   it('separates interpretation notes from gaps and preserves legacy saved explanations', async () => {
     const conversation = { id: 'notes-conversation', title: '合同费用', updated_at: '' }
@@ -104,12 +108,13 @@ describe('Document workspace', () => {
     vi.mocked(searchDocuments).mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve }) as never)
       .mockResolvedValueOnce({ data: { items: [], has_more: false } } as never)
     render(<WorkspacePage />)
+    await navigate('搜索')
     const input = screen.getByRole('searchbox')
     await userEvent.type(input, 'old')
-    await userEvent.click(screen.getByRole('button', { name: '搜索', exact: true }))
+    await userEvent.click(within(screen.getByRole('region', { name: '搜索资料' })).getByRole('button', { name: '搜索', exact: true }))
     await userEvent.clear(input)
     await userEvent.type(input, 'new')
-    await userEvent.click(screen.getByRole('button', { name: '搜索', exact: true }))
+    await userEvent.click(within(screen.getByRole('region', { name: '搜索资料' })).getByRole('button', { name: '搜索', exact: true }))
     await screen.findByText('没有找到匹配的片段。试试更短的关键词。')
     finishOld({ data: { items: [{ document_id: document.id, filename: document.filename,
       chunk_index: 0, chunk: document.chunks[0] }], has_more: false } })
@@ -121,8 +126,9 @@ describe('Document workspace', () => {
     vi.mocked(searchDocuments).mockResolvedValue({ data: { items: [{ document_id: document.id,
       filename: document.filename, chunk_index: 0, chunk: document.chunks[0] }], has_more: false } } as never)
     const { container } = render(<WorkspacePage />)
+    await navigate('搜索')
     await userEvent.type(screen.getByRole('searchbox'), '滤网')
-    await userEvent.click(screen.getByRole('button', { name: '搜索', exact: true }))
+    await userEvent.click(within(screen.getByRole('region', { name: '搜索资料' })).getByRole('button', { name: '搜索', exact: true }))
     await userEvent.click(await screen.findByRole('button', { name: '查看来源 · 内容块 2' }))
     await waitFor(() => expect(container.querySelector('.highlighted')).toHaveTextContent('每月清洁滤网'))
     expect(searchDocuments).toHaveBeenCalledWith('滤网', 0, expect.any(AbortSignal), 'keyword')
@@ -134,10 +140,11 @@ describe('Document workspace', () => {
       .mockResolvedValueOnce({ data: { items: [hit], has_more: true } } as never)
       .mockResolvedValueOnce({ data: { items: [{ ...hit, chunk_index: 1 }], has_more: false } } as never)
     const { container } = render(<WorkspacePage />)
+    await navigate('搜索')
     const mode = screen.getByRole('combobox', { name: '搜索模式' })
     await userEvent.selectOptions(mode, 'semantic')
     await userEvent.type(screen.getByRole('searchbox'), '零件多久维护一次')
-    await userEvent.click(screen.getByRole('button', { name: '搜索', exact: true }))
+    await userEvent.click(within(screen.getByRole('region', { name: '搜索资料' })).getByRole('button', { name: '搜索', exact: true }))
     expect(await screen.findByText(/语义搜索结果 «零件多久维护一次»/)).toBeVisible()
     await userEvent.selectOptions(mode, 'keyword')
     await userEvent.click(screen.getByRole('button', { name: '下一页' }))
@@ -151,8 +158,9 @@ describe('Document workspace', () => {
       .mockRejectedValueOnce({ isAxiosError: true, response: { data: { code: 'semantic_index_empty' } } })
       .mockResolvedValueOnce({ data: { items: [], has_more: false } } as never)
     render(<WorkspacePage />)
+    await navigate('搜索')
     const mode = screen.getByRole('combobox', { name: '搜索模式' })
-    const submit = screen.getByRole('button', { name: '搜索', exact: true })
+    const submit = within(screen.getByRole('region', { name: '搜索资料' })).getByRole('button', { name: '搜索', exact: true })
     await userEvent.selectOptions(mode, 'semantic')
     await userEvent.type(screen.getByRole('searchbox'), '滤网')
     await userEvent.click(submit)
@@ -170,6 +178,7 @@ describe('Document workspace', () => {
       return new Promise(resolve => { complete = resolve }) as never
     })
     const { container } = render(<WorkspacePage />)
+    await navigate('资料库')
     await screen.findByText('从第一份资料开始')
     const file = new File(['# Manual'], 'manual.md', { type: 'text/markdown' })
     fireEvent.change(container.querySelector('input[type=file]')!, { target: { files: [file] } })
@@ -184,16 +193,79 @@ describe('Document workspace', () => {
   it('opens the existing record for duplicate uploads', async () => {
     vi.mocked(uploadDocument).mockResolvedValue({ data: { document, duplicate: true } } as never)
     const { container } = render(<WorkspacePage />)
+    await navigate('资料库')
     await screen.findByText('从第一份资料开始')
     fireEvent.change(container.querySelector('input[type=file]')!, { target: { files: [new File(['same'], 'manual.md')] } })
     expect(await screen.findByText('这份文件已存在，已打开原有记录。')).toBeVisible()
     expect(await screen.findByRole('heading', { name: 'manual.md' })).toBeVisible()
   })
 
+  it('keeps drafts and search results when switching workspaces', async () => {
+    vi.mocked(searchDocuments).mockResolvedValue({ data: { items: [], has_more: false } } as never)
+    render(<WorkspacePage />)
+    await waitFor(() => expect(screen.getByRole('textbox', { name: '向资料提问' })).not.toHaveAttribute('readonly'))
+    await userEvent.type(screen.getByRole('textbox', { name: '向资料提问' }), '尚未发送的问题')
+    await navigate('搜索')
+    await userEvent.type(screen.getByRole('searchbox'), '滤网')
+    await userEvent.click(within(screen.getByRole('region', { name: '搜索资料' })).getByRole('button', { name: '搜索', exact: true }))
+    expect(await screen.findByText('搜索结果 «滤网»')).toBeVisible()
+    await navigate('资料问答')
+    expect(screen.getByRole('textbox', { name: '向资料提问' })).toHaveValue('尚未发送的问题')
+    await navigate('搜索')
+    expect(screen.getByRole('searchbox')).toHaveValue('滤网')
+    expect(screen.getByText('搜索结果 «滤网»')).toBeVisible()
+    expect(searchDocuments).toHaveBeenCalledTimes(1)
+  })
+
+  it('fills a suggested question without sending it and supports the keyboard shortcut', async () => {
+    const conversation = { id: 'suggested', title: '核心观点', updated_at: '' }
+    vi.mocked(saveConversationTurn).mockResolvedValue({ data: { conversation, turn: {
+      id: 'summary', question: '请总结资料中的核心观点，并标出相关来源。', depth: 'auto',
+      answer: { paragraphs: [], citations: {}, limitations: '尚无资料' },
+    } } } as never)
+    render(<WorkspacePage />)
+    await userEvent.click(await screen.findByRole('button', { name: /梳理核心观点/ }))
+    const question = screen.getByRole('textbox', { name: '向资料提问' })
+    expect(question).toHaveFocus()
+    expect(question).toHaveValue('请总结资料中的核心观点，并标出相关来源。')
+    expect(saveConversationTurn).not.toHaveBeenCalled()
+    fireEvent.keyDown(question, { key: 'Enter', ctrlKey: true, isComposing: true })
+    expect(saveConversationTurn).not.toHaveBeenCalled()
+    fireEvent.keyDown(question, { key: 'Enter', ctrlKey: true })
+    expect(await screen.findByText('尚无资料')).toBeVisible()
+    expect(saveConversationTurn).toHaveBeenCalledTimes(1)
+  })
+
+  it('validates drag-and-drop files and prevents concurrent uploads', async () => {
+    let complete!: (value: unknown) => void
+    vi.mocked(uploadDocument).mockImplementation(() => new Promise(resolve => { complete = resolve }) as never)
+    const { container } = render(<WorkspacePage />)
+    await navigate('资料库')
+    const zone = screen.getByRole('region', { name: '上传文件' })
+    const drop = (files: File[]) => fireEvent.drop(zone, { dataTransfer: { types: ['Files'], files } })
+    drop([new File(['x'], 'invalid.exe')])
+    expect(screen.getByRole('alert')).toHaveTextContent('暂不支持此文件格式')
+    expect(uploadDocument).not.toHaveBeenCalled()
+    drop([new File(['a'], 'a.md'), new File(['b'], 'b.md')])
+    expect(screen.getByRole('alert')).toHaveTextContent('每次上传一份文件')
+    const file = new File(['# Manual'], 'manual.md')
+    drop([file])
+    drop([file])
+    expect(uploadDocument).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: '选择文件' })).toBeDisabled()
+    complete({ data: { document, duplicate: false } })
+    expect(await screen.findByRole('dialog', { name: '资料详情' })).toBeVisible()
+    await screen.findByRole('heading', { name: 'manual.md' })
+    fireEvent.keyDown(container, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '选择文件' })).toBeEnabled()
+  })
+
   it('preserves actionable schema errors and allows refreshing', async () => {
     vi.mocked(listDocuments).mockRejectedValue({ isAxiosError: true, response: { status: 503, data: { code: 'schema_missing' } } })
     render(<WorkspacePage />)
     expect(await screen.findByRole('alert')).toHaveTextContent('init-db')
+    await navigate('资料库')
     vi.mocked(listDocuments).mockResolvedValue({ data: { items: [document], total: 1 } } as never)
     await userEvent.click(screen.getByRole('button', { name: '刷新' }))
     expect(await screen.findByRole('button', { name: /manual.md/ })).toBeVisible()
@@ -203,6 +275,7 @@ describe('Document workspace', () => {
   it('shows timeout uncertainty instead of claiming that upload failed', async () => {
     vi.mocked(uploadDocument).mockRejectedValue({ isAxiosError: true, code: 'ECONNABORTED' })
     const { container } = render(<WorkspacePage />)
+    await navigate('资料库')
     await screen.findByText('从第一份资料开始')
     fireEvent.change(container.querySelector('input[type=file]')!, { target: { files: [new File(['hello'], 'manual.md')] } })
     expect(await screen.findByRole('alert')).toHaveTextContent('服务可能仍在处理')

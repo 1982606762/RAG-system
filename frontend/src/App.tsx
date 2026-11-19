@@ -3,7 +3,7 @@ import { Navigate, Outlet } from 'react-router-dom'
 import { getSession } from './api'
 import { useAuth } from './store'
 import { useT } from './i18n'
-import LangSwitch from './components/LangSwitch'
+import Icon from './components/Icon'
 
 export default function App() {
   const { token, logout } = useAuth()
@@ -26,17 +26,15 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="topbar">
-        <span className="brand">{t('brand')}</span>
-        <div className="header-actions"><LangSwitch /><button onClick={logout}>{t('logout')}</button></div>
-      </header>
       <main className="content">
         {verifiedToken === token ? <Outlet /> : failed ? (
-          <div role="alert">
+          <div className="session-state" role="alert">
+            <span className="brand-mark"><Icon name="logo" size={26} /></span>
             <p>{t('sessionError')}</p>
             <button onClick={() => setAttempt((value) => value + 1)}>{t('retry')}</button>
+            <button className="subtle-button" onClick={logout}>{t('logout')}</button>
           </div>
-        ) : <p role="status">{t('loading')}</p>}
+        ) : <div className="session-state" role="status"><span className="brand-mark"><Icon name="logo" size={26} /></span><p>{t('loading')}</p></div>}
       </main>
     </div>
   )

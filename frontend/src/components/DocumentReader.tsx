@@ -4,6 +4,7 @@ import { useT } from '../i18n'
 import OriginalText from './OriginalText'
 import PagePreview, { pageRegion, Region } from './PagePreview'
 import EmbeddingPanel from './EmbeddingPanel'
+import Icon from './Icon'
 
 type Props = {
   id: string
@@ -110,7 +111,7 @@ export default function DocumentReader({ id, revision, busy, onRetry, onClose, i
   const location = selectedBlock?.location
 
   return <section className="reader" ref={root} tabIndex={-1} aria-label={document?.filename || t('loadingDocument')}>
-    <div className="panel-heading"><h2>{document?.filename || t('loadingDocument')}</h2><button onClick={onClose}>{t('close')}</button></div>
+    <div className="panel-heading reader-heading"><span className="reader-file-icon"><Icon name="file" size={20} /></span><h2>{document?.filename || t('loadingDocument')}</h2><button className="icon-button" onClick={onClose} aria-label={t('close')} title={`${t('close')} · Esc`}><Icon name="close" size={20} /></button></div>
     {loading && !document ? <p role="status">{t('loadingDocument')}</p> : failed || !document ? <p className="error" role="alert">{t('loadError')}</p> : <>
       <div className="reader-meta"><span>{document.block_count} {t('blocks')} · {document.chunk_count} {t('chunks')}</span>
         {document.page_count && <span>{document.page_count} {t('page')}</span>}

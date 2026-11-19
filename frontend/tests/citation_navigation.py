@@ -82,7 +82,7 @@ with sync_playwright() as playwright:
         source = page.locator(".ask-answer").first.locator(".source-links button")
         # Open, return to the long answer, click the identical source, then another
         # page in the same file. No bbox/Region exists to scroll on our behalf.
-        for index, source_page in [(0, 2), (0, 2), (1, 3)]:
+        for step, (index, source_page) in enumerate([(0, 2), (0, 2), (1, 3)]):
             source.nth(index).click()
             expect(page.locator(".reader h2")).to_be_in_viewport()
             expect(page.locator(".reader")).to_be_focused()
@@ -90,6 +90,9 @@ with sync_playwright() as playwright:
             expect(page.locator(".page-preview > img")).to_have_attribute(
                 "alt", f"contract-fixture.pdf · 页 {source_page}")
             expect(page.locator(".source-region")).to_have_count(0)
+            if step < 2:
+                page.get_by_role("button", name="关闭", exact=True).click()
+                expect(source.nth(index)).to_be_focused()
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         page.screenshot(path=str(output / f"{label}-citation-navigation.png"))
         assert not errors, errors

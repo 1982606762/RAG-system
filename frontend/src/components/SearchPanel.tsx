@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { isAxiosError } from 'axios'
 import { searchDocuments, type SearchHit, type SearchMode } from '../api'
 import { useT } from '../i18n'
+import Icon from './Icon'
 
 const semanticErrors = new Map([
   ['semantic_disabled', 'semanticDisabled'],
@@ -47,23 +48,26 @@ export default function SearchPanel({ onSelect }: { onSelect: (id: string, block
     }
   }
 
-  return <section className="library-panel search-panel" aria-label={t('search')}>
+  return <section className="search-panel" aria-label={t('search')}>
     <form onSubmit={event => { event.preventDefault(); if (input.trim()) void search(input.trim(), mode) }}>
-      <label htmlFor="document-search">{t('search')}</label>
+      <label className="sr-only" htmlFor="document-search">{t('search')}</label>
       <div className="search-controls">
         <select aria-label={t('searchMode')} value={mode} onChange={event => setMode(event.target.value as SearchMode)}>
           <option value="keyword">{t('keywordSearch')}</option>
           <option value="semantic">{t('semanticSearch')}</option>
         </select>
-        <input id="document-search" type="search" value={input} maxLength={200}
+        <div className="search-input"><Icon name="search" size={20} /><input id="document-search" type="search" value={input} maxLength={200}
           placeholder={t(mode === 'keyword' ? 'searchHint' : 'semanticHint')}
-          onChange={event => setInput(event.target.value)} required />
+          onChange={event => setInput(event.target.value)} required /></div>
         <button className="accent-button" disabled={!input.trim()}>{t('searchAction')}</button>
       </div>
       <small>{t(mode === 'keyword' ? 'searchScope' : 'semanticScope')}</small>
     </form>
-    {loading ? <p role="status">{t('searching')}</p>
-      : error ? <p role="alert">{t(error)}</p>
+    {!submitted && <div className="search-welcome empty-state"><span className="empty-icon"><Icon name="search" size={29} /></span><h2>{t('searchWelcome')}</h2><p>{t('searchWelcomeHint')}</p>
+      <div className="search-tips"><div><Icon name="search" size={18} /><strong>{t('keywordSearch')}</strong><p>{t('keywordTip')}</p></div><div><Icon name="sparkle" size={18} /><strong>{t('semanticSearch')}</strong><p>{t('semanticTip')}</p></div></div>
+    </div>}
+    {loading ? <p className="inline-status" role="status"><span className="spinner" />{t('searching')}</p>
+      : error ? <p className="feedback error" role="alert">{t(error)}</p>
       : submitted && <div aria-live="polite">
         <p>{t(submitted.mode === 'keyword' ? 'searchResults' : 'semanticResults')} «{submitted.query}»{items.length ? ` · ${offset + 1}–${offset + items.length}` : ''}</p>
         {items.length === 0 && <p>{t(submitted.mode === 'keyword' ? 'noResults' : 'noSemanticResults')}</p>}

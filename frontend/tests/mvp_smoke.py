@@ -32,6 +32,7 @@ with sync_playwright() as playwright:
     page.goto(base_url)
     page.get_by_label('访问密码').fill(password)
     page.get_by_role('button', name='登录', exact=True).click()
+    page.get_by_role('navigation').get_by_role('button', name=re.compile('资料库')).click()
     expect(page.get_by_role('button', name='选择文件')).to_be_visible()
     expect(page.get_by_role('heading', name='从第一份资料开始')).to_be_visible()
     with page.expect_response(lambda response: response.url.endswith('/api/documents') and response.request.method == 'POST') as upload:
@@ -44,28 +45,32 @@ with sync_playwright() as playwright:
     expect(page.locator('.reader')).to_contain_text('保养周期')
     expect(page.locator('.embedding-panel')).to_contain_text('向量未配置')
     page.get_by_role('button', name='分块结果', exact=True).click()
-    expect(page.locator('.chunk-card').first).to_be_visible()
+    expect(page.locator('.reader .chunk-card').first).to_be_visible()
     page.screenshot(path=str(output / 'desktop-chunks.png'), full_page=True)
     page.get_by_role('button', name=re.compile('查看来源')).first.click()
     expect(page.locator('.original-text mark')).to_be_visible()
     page.get_by_role('button', name='原件', exact=True).click()
     expect(page.locator('.original-text')).to_contain_text('设备维护手册')
     assert page.evaluate('window.ragUnsafe') is None
+    page.get_by_role('button', name='关闭', exact=True).click()
     expect(page.get_by_role('button', name='选择文件')).to_be_enabled()
     page.locator('input[type=file]').set_input_files({'name': name, 'mimeType': 'text/markdown', 'buffer': content})
     expect(page.get_by_text('这份文件已存在，已打开原有记录。')).to_be_visible()
     expect(page.locator('.document-table tbody tr')).to_have_count(1)
+    page.get_by_role('button', name='关闭', exact=True).click()
+    page.get_by_role('navigation').get_by_role('button', name='资料问答', exact=True).click()
     page.get_by_role('textbox', name='向资料提问').fill('滤网多久清洗一次？')
     page.get_by_role('button', name='提问', exact=True).click()
     expect(page.locator('.ask-panel').get_by_role('alert')).to_contain_text('尚未配置 Gemini')
+    page.get_by_role('navigation').get_by_role('button', name='搜索', exact=True).click()
     mode = page.get_by_role('combobox', name='搜索模式')
     mode.select_option('semantic')
     page.get_by_role('searchbox').fill('零件多久维护一次')
-    page.get_by_role('button', name='搜索', exact=True).click()
+    page.locator('.search-panel').get_by_role('button', name='搜索', exact=True).click()
     expect(page.locator('.search-panel').get_by_role('alert')).to_contain_text('语义搜索尚未配置')
     mode.select_option('keyword')
     page.get_by_role('searchbox').fill('滤网')
-    page.get_by_role('button', name='搜索', exact=True).click()
+    page.locator('.search-panel').get_by_role('button', name='搜索', exact=True).click()
     page.locator('.search-panel .source-links button').first.click()
     expect(page.locator('.original-text mark')).to_be_visible()
 
@@ -76,6 +81,8 @@ with sync_playwright() as playwright:
         pdf.drawString(60, 710, f'Inspect the filter on page {number}. Disconnect power before cleaning.')
         pdf.showPage()
     pdf.save()
+    page.get_by_role('button', name='关闭', exact=True).click()
+    page.get_by_role('navigation').get_by_role('button', name=re.compile('资料库')).click()
     expect(page.get_by_role('button', name='选择文件')).to_be_enabled()
     page.locator('input[type=file]').set_input_files({'name': 'equipment.pdf', 'mimeType': 'application/pdf', 'buffer': pdf_buffer.getvalue()})
     expect(page.locator('.reader h2')).to_have_text('equipment.pdf')
@@ -87,6 +94,7 @@ with sync_playwright() as playwright:
     page.screenshot(path=str(output / 'desktop-pdf.png'), full_page=True)
 
     broken = b'This is not a PDF.'
+    page.get_by_role('button', name='关闭', exact=True).click()
     expect(page.get_by_role('button', name='选择文件')).to_be_enabled()
     page.locator('input[type=file]').set_input_files({'name': 'broken.pdf', 'mimeType': 'application/pdf', 'buffer': broken})
     expect(page.locator('.reader h2')).to_have_text('broken.pdf')
@@ -99,10 +107,11 @@ with sync_playwright() as playwright:
     downloaded = Path(download.value.path())
     assert downloaded.read_bytes() == broken
 
+    page.get_by_role('button', name='关闭', exact=True).click()
     page.get_by_role('button', name=re.compile(name)).click()
     page.set_viewport_size({'width': 390, 'height': 844})
     page.get_by_role('button', name='分块结果', exact=True).click()
-    expect(page.locator('.chunk-card').first).to_be_visible()
+    expect(page.locator('.reader .chunk-card').first).to_be_visible()
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'Mobile page overflows horizontally'
     page.screenshot(path=str(output / 'mobile-chunks.png'), full_page=True)
     assert not errors, errors
