@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from test_shell import app, PASSWORD
 from answers.provider import Gemini
-from answers.service import READ, SEARCH, SUBMIT, TOOLS
+from answers.service import READ, SEARCH, SUBMIT, TOOLS, answer_question
 from embeddings.provider import Profile
 
 
@@ -109,6 +109,78 @@ class AnswerTests(unittest.TestCase):
         self.assertEqual(response.json()["limitations"], "")
         self.assertEqual(response.json()["notes"], "合同预估值不代表实际扣款。")
         self.assertEqual(response.json()["citations"]["S1"]["document_id"], "contract")
+
+    def test_empty_chinese_keywords_recover_danish_evidence_with_semantic_search(self):
+        question = "车贷每月还款"
+        excerpts = []
+        def reply(contents, *args):
+            if len(contents) == 1:
+                return turn(SEARCH, query=question, mode="keyword")
+            recovered = contents[-1]["parts"][0]["functionResponse"]["response"]
+            self.assertEqual(recovered["fallback"], "semantic")
+            excerpts.extend(recovered["excerpts"])
+            return turn(SUBMIT, paragraphs=[{"text": "合同月供为 3150 丹麦克朗。", "source_ids": ["S1"]}], limitations="")
+
+        with patch("answers.service.answer_profile", return_value=self.profile), patch("answers.service.Gemini") as gemini, \
+                patch("db.documents.search_chunks", return_value={"items": [], "has_more": False}), \
+                patch("answers.service.semantic_search", return_value={"items": [hit("new-loan", "Månedlige ydelser: 3.150,00 kr.")], "has_more": False}) as semantic:
+            gemini.return_value.__enter__.return_value.generate.side_effect = reply
+            result = self.ask(question)
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertEqual(excerpts[0]["filename"], "new-loan.txt")
+        self.assertEqual(result.json()["citations"]["S1"]["document_id"], "new-loan")
+        semantic.assert_called_once_with(question, 4, deadline=unittest.mock.ANY)
+
+    def test_no_evidence_after_scoped_search_requires_fresh_whole_library_search(self):
+        old = hit("old-loan", "Earlier agreement without monthly terms")
+        new = hit("new-loan", "Månedlige ydelser: 3.150,00 kr.")
+        history = [{"question": "我的贷款有哪些条款？", "answer": {
+            "paragraphs": [{"text": "找到旧合同。"}],
+            "citations": {"S1": {"document_id": "old-loan", "filename": "old.txt"}},
+        }}]
+        replies = iter([
+            turn(SEARCH, query="贷款月供", mode="keyword", document_ref="D1"),
+            turn(SUBMIT, paragraphs=[], limitations="没有月供资料。"),
+            turn(SUBMIT, paragraphs=[{"text": "新合同月供为 3150 丹麦克朗。", "source_ids": ["S2"]}], limitations=""),
+        ])
+        snapshots = []
+        def reply(contents, *args):
+            snapshots.append(list(contents))
+            return next(replies)
+
+        with patch("answers.service.answer_profile", return_value=self.profile), patch("answers.service.Gemini") as gemini, \
+                patch("db.documents.search_chunks", return_value={"items": [old], "has_more": False}) as keywords, \
+                patch("answers.service.semantic_search", return_value={"items": [new], "has_more": False}) as semantic:
+            gemini.return_value.__enter__.return_value.generate.side_effect = reply
+            result = answer_question("刚上传了新合同，现在月供多少？", "auto", history=history)
+        keywords.assert_called_once_with("贷款月供", 4, 0, document_id="old-loan")
+        semantic.assert_called_once_with("贷款月供", 4, deadline=unittest.mock.ANY)
+        recovery = snapshots[-1][-1]["parts"][0]["functionResponse"]["response"]
+        self.assertIn("review_required", recovery)
+        self.assertEqual(recovery["library_search"]["excerpts"][0]["source_id"], "S2")
+        self.assertEqual(result["citations"]["S2"]["document_id"], "new-loan")
+        self.assertEqual(result["limitations"], "")
+
+    def test_empty_keyword_fallback_reports_semantic_outage_without_retry_loop(self):
+        from documents.models import DocumentError
+        snapshots = []
+        def reply(contents, *args):
+            snapshots.append(list(contents))
+            if len(contents) == 1:
+                return turn(SEARCH, query="车贷", mode="keyword")
+            return turn(SUBMIT, paragraphs=[], limitations="关键词未命中，语义服务暂不可用，尚无法完成核对。")
+
+        with patch("answers.service.answer_profile", return_value=self.profile), patch("answers.service.Gemini") as gemini, \
+                patch("db.documents.search_chunks", return_value={"items": [], "has_more": False}), \
+                patch("answers.service.semantic_search", side_effect=DocumentError("embedding_quota", "quota", 503)) as semantic:
+            gemini.return_value.__enter__.return_value.generate.side_effect = reply
+            result = self.ask()
+        self.assertEqual(result.status_code, 200, result.text)
+        recovery = snapshots[-1][-1]["parts"][0]["functionResponse"]["response"]
+        self.assertEqual(recovery["semantic_error"], "embedding_quota")
+        self.assertEqual(recovery["excerpts"], [])
+        self.assertEqual(result.json()["paragraphs"], [])
+        self.assertEqual(semantic.call_count, 1)
 
     def test_vertex_transport_requests_forced_tools(self):
         session = Mock()

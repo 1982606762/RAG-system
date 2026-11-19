@@ -117,3 +117,55 @@ class ConversationTests(unittest.TestCase):
                                       json={"question": "有没有合同？", "request_id": identifier})
         self.assertEqual(failed.status_code, 503)
         self.assertEqual(self.client.get(f"/api/conversations/{identifier}", headers=self.headers).status_code, 404)
+
+    def test_follow_up_finds_danish_file_uploaded_after_the_previous_answer(self):
+        marker = f"Loan-{uuid4()}"
+        old = self.upload("agreement.txt", f"{marker}\n\nLoan terms without a payment schedule.")
+        conversation_id, follow_up_id = str(uuid4()), str(uuid4())
+        self.conversations.append(conversation_id)
+        root = "/api/conversations"
+        path = f"{root}/{conversation_id}"
+        replies = [
+            (SEARCH, {"query": marker, "mode": "keyword"}),
+            (SUBMIT, {"paragraphs": [{"text": "找到贷款协议。", "source_ids": ["S1"]}], "limitations": ""}),
+        ]
+        def reply(*args):
+            name, arguments = replies.pop(0)
+            return {"role": "model", "parts": [{"functionCall": {"name": name, "args": arguments}}]}
+
+        with patch("answers.service.Gemini") as gemini:
+            gemini.return_value.__enter__.return_value.generate.side_effect = reply
+            first = self.client.post(root, headers=self.headers,
+                                     json={"question": "我的贷款协议有哪些？", "request_id": conversation_id})
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(first.json()["turn"]["answer"]["citations"]["S1"]["document_id"], old)
+
+        # Upload after the first answer, using source-language text that the next
+        # Chinese literal query cannot match. Cloud retrieval is stubbed, SQL is real.
+        new = self.upload("updated-agreement.txt", f"{marker}\n\nMånedlige ydelser: 3.150,00 kr.")
+        replies.extend([
+            (SEARCH, {"query": "车贷每月还款", "mode": "keyword", "document_ref": "D1"}),
+            (SUBMIT, {"paragraphs": [], "limitations": "旧协议没有月供。"}),
+            (SUBMIT, {"paragraphs": [{"text": "补充协议列有月供 3150 丹麦克朗。", "source_ids": ["S1"]}],
+                      "limitations": ""}),
+        ])
+        def semantic(query, limit, *, deadline, document_id=None):
+            self.assertEqual(query, "车贷每月还款")
+            return store.search_chunks("Månedlige ydelser", limit, 0, document_id=document_id)
+
+        with patch("answers.service.Gemini") as gemini, \
+                patch("answers.service.semantic_search", side_effect=semantic) as retrieval:
+            gemini.return_value.__enter__.return_value.generate.side_effect = reply
+            follow_up = self.client.post(path + "/turns", headers=self.headers, json={
+                "question": "刚上传了补充协议，我的车贷每个月还多少钱？", "request_id": follow_up_id,
+                "after_turn_id": conversation_id,
+            })
+        self.assertEqual(follow_up.status_code, 200, follow_up.text)
+        self.assertEqual(retrieval.call_count, 2)
+        self.assertEqual(retrieval.call_args_list[0].kwargs["document_id"], old)
+        self.assertNotIn("document_id", retrieval.call_args_list[1].kwargs)
+        answer = follow_up.json()["turn"]["answer"]
+        self.assertEqual(answer["citations"]["S1"]["document_id"], new)
+        self.assertEqual(answer["limitations"], "")
+        saved = self.client.get(path, headers=self.headers).json()
+        self.assertEqual(saved["turns"][-1]["answer"], answer)
