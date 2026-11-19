@@ -30,6 +30,7 @@ class AnswerTests(unittest.TestCase):
         token = self.client.post("/api/auth/login", json={"password": PASSWORD}).json()["access_token"]
         self.headers = {"Authorization": f"Bearer {token}"}
         self.profile = Profile("answer-test", "global", "gemini-3.1-flash-lite")
+        self.enterContext(patch("db.documents.read_short_document_context", return_value=[]))
 
     def ask(self, question="本期实际付了多少？", depth="auto"):
         return self.client.post("/api/ask", json={"question": question, "depth": depth}, headers=self.headers)
@@ -181,6 +182,28 @@ class AnswerTests(unittest.TestCase):
         self.assertEqual(recovery["excerpts"], [])
         self.assertEqual(result.json()["paragraphs"], [])
         self.assertEqual(semantic.call_count, 1)
+
+    def test_short_schedule_includes_separate_fee_clause_before_answering(self):
+        schedule = hit("updated-loan", "Månedlig ydelse: 3.000,00 DKK.", 1)
+        fee = hit("updated-loan", "Månedligt gebyr: 25,00 DKK. I alt 3.025,00 DKK.", 4)
+        snapshots = []
+        def reply(contents, *args):
+            snapshots.append(list(contents))
+            if len(contents) == 1:
+                return turn(SEARCH, query="车贷月供", mode="semantic")
+            excerpts = contents[-1]["parts"][0]["functionResponse"]["response"]["excerpts"]
+            self.assertEqual([excerpt["text"] for excerpt in excerpts], [schedule["chunk"]["text"], fee["chunk"]["text"]])
+            return turn(SUBMIT, paragraphs=[{"text": "按计划每月合计 3025 DKK，含月供 3000 和手续费 25。",
+                                             "source_ids": ["S1", "S2"]}], limitations="")
+
+        with patch("answers.service.answer_profile", return_value=self.profile), patch("answers.service.Gemini") as gemini, \
+                patch("answers.service.semantic_search", return_value={"items": [schedule], "has_more": False}), \
+                patch("db.documents.read_short_document_context", return_value=[schedule, fee]) as context:
+            gemini.return_value.__enter__.return_value.generate.side_effect = reply
+            result = self.ask("我的车贷每月交多少钱？")
+        self.assertEqual(result.status_code, 200, result.text)
+        context.assert_called_once_with(schedule)
+        self.assertEqual(result.json()["citations"]["S2"]["locations"], [{"block_index": 4, "page": 5}])
 
     def test_vertex_transport_requests_forced_tools(self):
         session = Mock()

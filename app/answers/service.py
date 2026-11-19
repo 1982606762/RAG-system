@@ -128,6 +128,7 @@ class Evidence:
         self.ids = {}
         self.library_semantic_attempted = False
         self.last_query = None
+        self.expanded_documents = set()
 
     def semantic(self, query, limit, scope):
         if not scope:
@@ -198,7 +199,17 @@ class Evidence:
                 fallback = {"semantic_error": exc.code,
                             "guidance": "Keywords matched nothing and semantic search could not run. "
                                         "Try literal terms in the document's language; do not infer that files are absent."}
-        return {"excerpts": self.excerpts(result["items"]),
+        # Register ranked anchors first, then complete short documents. Otherwise
+        # a payment table can hide a fee clause several chunks later in the same file.
+        excerpts = self.excerpts(result["items"])
+        for hit in result["items"]:
+            if hit["document_id"] in self.expanded_documents or len(self.hits) >= MAX_SOURCES:
+                continue
+            context = documents.read_short_document_context(hit)
+            self.expanded_documents.add(hit["document_id"])
+            excerpts.extend(self.excerpts(context))
+        excerpts = list({excerpt["source_id"]: excerpt for excerpt in excerpts}.values())
+        return {"excerpts": excerpts,
                 "more_matches": result["has_more"], "evidence_limit_reached": len(self.hits) >= MAX_SOURCES,
                 **fallback}
 

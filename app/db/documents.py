@@ -102,6 +102,19 @@ def read_chunk_context(hit):
             (hit["document_id"], hit["chunk_index"], Jsonb(hit["chunk"]))).fetchall()
 
 
+def read_short_document_context(hit):
+    """Keep short agreements complete without expanding large files or stale anchors."""
+    with connect() as conn:
+        return conn.execute("""SELECT d.id AS document_id, d.filename, c.chunk_index, c.data AS chunk
+            FROM knowledge_base_v1.chunks anchor
+            JOIN knowledge_base_v1.documents d ON d.id=anchor.document_id
+            JOIN knowledge_base_v1.chunks c ON c.document_id=anchor.document_id
+            WHERE d.status='ready' AND d.chunk_count BETWEEN 1 AND 8
+                AND anchor.document_id=%s AND anchor.chunk_index=%s AND anchor.data=%s
+            ORDER BY c.chunk_index""",
+            (hit["document_id"], hit["chunk_index"], Jsonb(hit["chunk"]))).fetchall()
+
+
 def get_document(conn, document_id):
     row = conn.execute("SELECT * FROM knowledge_base_v1.documents WHERE id=%s", (document_id,)).fetchone()
     if row is None:

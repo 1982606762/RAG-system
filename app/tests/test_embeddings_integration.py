@@ -127,10 +127,17 @@ class EmbeddingIntegrationTests(unittest.TestCase):
         neighbors = store.read_chunk_context(anchor)
         self.assertEqual([hit['chunk']['text'] for hit in neighbors], ['前一段', '上下文锚点', '后一段'])
         self.assertEqual({hit['document_id'] for hit in neighbors}, {identifier})
+        complete = store.read_short_document_context(anchor)
+        self.assertEqual([hit['chunk']['text'] for hit in complete], ['前一段', '上下文锚点', '后一段', '更远的段落'])
+        self.assertEqual({hit['document_id'] for hit in complete}, {identifier})
         with store.connect() as conn:
             conn.execute("""UPDATE knowledge_base_v1.chunks SET data=jsonb_set(data, '{text}', to_jsonb('已改变'::text))
                 WHERE document_id=%s AND chunk_index=1""", (identifier,))
         self.assertEqual(store.read_chunk_context(anchor), [])
+        self.assertEqual(store.read_short_document_context(anchor), [])
+        large = self.create([f'Large document part {index}' for index in range(9)])
+        large_anchor, = store.search_chunks('Large document part 0', 1, 0, document_id=large)['items']
+        self.assertEqual(store.read_short_document_context(large_anchor), [])
 
     def test_scoped_semantic_search_only_uses_vectors_from_the_requested_document(self):
         target = self.create(['目标合同'])
