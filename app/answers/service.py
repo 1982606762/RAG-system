@@ -77,6 +77,12 @@ When needed, rewrite queries in the document's language, preserving identifiers,
 Search current library contents on every question; new documents may have been uploaded since
 the previous turn. For current terms, look for later amendments to the same agreement and compare
 effective dates before using an older schedule. Do not assume that upload order is effective order.
+For questions about how much is due each month, do not stop at a repayment table. Explicitly search
+the relevant agreement and updated schedule for recurring installment, collection or administration
+fees, and read nearby fee clauses. Check whether fees are included in the displayed installment
+before adding them, so they are neither omitted nor counted twice. Answer with the total regular
+payment and its components when supported; distinguish exceptional first/last payments. If fee
+coverage is uncertain, label the known installment as a subtotal and state the specific gap.
 For totals or comparisons, check periods, currencies, units, and duplicate records. Distinguish
 scheduled amounts from actual payments. Report conflicts and missing periods. Search returns a
 limited selection, so never imply that top hits cover the entire library. Label any supported
@@ -96,6 +102,9 @@ For example, when asked what monthly costs a contract mentions, citing its estim
 costs answers the question; that estimates may differ from actual payments is a note, not a gap.
 When asked what was actually paid, missing payment records are a real gap. All factual claims,
 including amounts and document terms, still belong in cited paragraphs, never uncited notes.
+Do not repeat agreement numbers, dates, amounts or other document-specific claims in notes;
+keep those details in paragraphs with their supporting source IDs. Notes are only general scope
+or interpretation reminders and should not duplicate the answer.
 Call submit_answer alone when the answer is ready.
 """.strip()
 
