@@ -398,3 +398,9 @@ progress { accent-color: var(--accent); height: 6px; width: 190px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+.search-language-plan { padding: 13px 16px; margin-bottom: 20px; border: 1px solid var(--line); border-radius: 9px; background: #fcfaff; font-size: .8125rem; color: #746580; }
+.search-language-plan summary { cursor: pointer; font-weight: 500; }
+.search-language-plan > div { display: flex; gap: 15px; padding-top: 8px; }
+.search-language-plan strong { min-width: 53px; font-weight: 500; color: #8b739b; }
+.search-language-plan span { overflow-wrap: anywhere; min-width: 0; }

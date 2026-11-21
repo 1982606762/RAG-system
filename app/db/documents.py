@@ -89,6 +89,35 @@ def search_chunks(query: str, limit: int, offset: int, *, document_id=None):
     return {"items": rows[:limit], "has_more": len(rows) > limit}
 
 
+def search_chunk_variants(variants, limit, offset, *, document_id=None):
+    """OR query alternatives, AND terms within each; paginate unique chunks in SQL."""
+    if not isinstance(variants, list) or not 1 <= len(variants) <= 10 or any(
+        not isinstance(query, str) or not 1 <= len(query.strip()) <= 200
+        or len(query.split()) > 10 or '\x00' in query for query in variants
+    ):
+        raise DocumentError('invalid_query', '多语言检索词无效。', 422)
+    variants = list(dict.fromkeys(' '.join(query.split()) for query in variants))
+    with connect() as conn:
+        rows = conn.execute("""WITH queries AS (
+                SELECT query, string_to_array(query, ' ') AS terms FROM unnest(%s::text[]) AS q(query)
+            )
+            SELECT d.id AS document_id, d.filename, c.chunk_index, c.data AS chunk
+            FROM knowledge_base_v1.chunks c
+            JOIN knowledge_base_v1.documents d ON d.id=c.document_id
+            CROSS JOIN LATERAL (
+                SELECT max((strpos(lower(c.data->>'text'), lower(q.query)) > 0)::int) AS phrase_match
+                FROM queries q WHERE NOT EXISTS (
+                    SELECT 1 FROM unnest(q.terms) AS t(term)
+                    WHERE strpos(lower(c.data->>'text'), lower(term))=0
+                )
+            ) matches
+            WHERE d.status='ready' AND (%s::uuid IS NULL OR d.id=%s::uuid)
+                AND matches.phrase_match IS NOT NULL
+            ORDER BY matches.phrase_match DESC, d.created_at DESC, d.id, c.chunk_index
+            LIMIT %s OFFSET %s""", (variants, document_id, document_id, limit + 1, offset)).fetchall()
+    return {'items': rows[:limit], 'has_more': len(rows) > limit}
+
+
 def read_chunk_context(hit):
     """Return the anchor and its immediate neighbors from the same document version."""
     with connect() as conn:

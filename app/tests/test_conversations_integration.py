@@ -30,6 +30,8 @@ class ConversationTests(unittest.TestCase):
         self.headers = {"Authorization": f"Bearer {token}"}
         self.documents = []
         self.conversations = []
+        self.enterContext(patch('search.service.expand_query', side_effect=lambda query, **kwargs:
+                                {language: [query] for language in ('zh', 'en', 'da')}))
 
     def tearDown(self):
         with store.connect() as conn:
@@ -119,6 +121,10 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(self.client.get(f"/api/conversations/{identifier}", headers=self.headers).status_code, 404)
 
     def test_follow_up_finds_danish_file_uploaded_after_the_previous_answer(self):
+        def expand(query, **kwargs):
+            return {'zh': [query], 'en': [query],
+                    'da': ['Månedlige ydelser'] if query == '车贷每月还款' else [query]}
+        self.enterContext(patch('search.service.expand_query', side_effect=expand))
         marker = f"Loan-{uuid4()}"
         old = self.upload("agreement.txt", f"{marker}\n\nLoan terms without a payment schedule.")
         conversation_id, follow_up_id = str(uuid4()), str(uuid4())

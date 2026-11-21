@@ -1,6 +1,7 @@
 """Bounded, read-only Gemini tool loop over the owner's documents."""
 
 import json
+import re
 import time
 
 from pydantic import BaseModel, Field
@@ -9,6 +10,7 @@ from answers.provider import Gemini, answer_profile
 from db import documents
 from documents.models import DocumentError
 from embeddings.retrieval import semantic_search
+from search.service import multilingual_search
 
 SEARCH = "search_documents"
 READ = "read_context"
@@ -74,6 +76,9 @@ or similar passages need context. Search for different file types, dates, or wor
 Prefer semantic mode for natural-language questions even when the question and documents use
 different languages. Empty keyword results do not establish that no relevant documents exist.
 When needed, rewrite queries in the document's language, preserving identifiers, dates and scope.
+For Chinese questions, the server also searches Chinese, English and Danish keyword variants
+on every search call, even if you request semantic mode. Inspect multilingual_error when present;
+a failed language expansion is not evidence that relevant files do not exist.
 Search current library contents on every question; new documents may have been uploaded since
 the previous turn. For current terms, look for later amendments to the same agreement and compare
 effective dates before using an older schedule. Do not assume that upload order is effective order.
@@ -121,7 +126,7 @@ class Answer(BaseModel):
 
 
 class Evidence:
-    def __init__(self, deadline, documents_by_ref):
+    def __init__(self, deadline, documents_by_ref, *, multilingual=False):
         self.deadline = deadline
         self.documents_by_ref = documents_by_ref
         self.hits = {}
@@ -129,11 +134,38 @@ class Evidence:
         self.library_semantic_attempted = False
         self.last_query = None
         self.expanded_documents = set()
+        self.multilingual = multilingual
 
     def semantic(self, query, limit, scope):
         if not scope:
             self.library_semantic_attempted = True
         return semantic_search(query, limit, deadline=self.deadline, **scope)
+
+    def retrieve(self, query, mode, limit, scope):
+        translated = None
+        metadata = {}
+        if self.multilingual:
+            try:
+                translated = multilingual_search(query, limit, deadline=self.deadline, **scope)
+                metadata['queries'] = translated.get('queries', {})
+            except DocumentError as error:
+                metadata['multilingual_error'] = error.code
+        if mode == 'keyword':
+            return (translated if translated is not None else documents.search_chunks(query, limit, 0, **scope)), metadata
+        try:
+            result = self.semantic(query.strip(), limit, scope)
+        except DocumentError as error:
+            if translated is None or not translated['items']:
+                raise
+            metadata['semantic_error'] = error.code
+            return translated, metadata
+        if translated is not None:
+            # These are two ranked result sets, never concatenated copies of a source.
+            unique = {(hit['document_id'], hit['chunk_index']): hit for hit in result['items']}
+            for hit in translated['items']:
+                unique.setdefault((hit['document_id'], hit['chunk_index']), hit)
+            result = {'items': list(unique.values()), 'has_more': result['has_more'] or translated['has_more']}
+        return result, metadata
 
     def excerpts(self, hits):
         excerpts = []
@@ -176,13 +208,10 @@ class Evidence:
         if not isinstance(query, str) or not 1 <= len(query.strip()) <= 200 or "\x00" in query:
             return {"error": "Provide a query of 1–200 characters."}
         self.last_query = query.strip()
+        if mode not in ('keyword', 'semantic'):
+            return {"error": "Select keyword or semantic mode."}
         try:
-            if mode == "keyword":
-                result = documents.search_chunks(query, limit, 0, **scope)
-            elif mode == "semantic":
-                result = self.semantic(query.strip(), limit, scope)
-            else:
-                return {"error": "Select keyword or semantic mode."}
+            result, fallback = self.retrieve(query, mode, limit, scope)
         except DocumentError as exc:
             if mode == "keyword":
                 return {"error": "Use up to 10 space-separated keyword terms."}
@@ -190,15 +219,14 @@ class Evidence:
                     "code": exc.code}
         # Literal misses are common when the question and source use different languages.
         # Preserve the caller's scope and make the additional retrieval explicit to Gemini.
-        fallback = {}
         if mode == "keyword" and not result["items"]:
             try:
                 result = self.semantic(query.strip(), limit, scope)
-                fallback = {"fallback": "semantic", "keyword_matches": False}
+                fallback.update({"fallback": "semantic", "keyword_matches": False})
             except DocumentError as exc:
-                fallback = {"semantic_error": exc.code,
+                fallback.update({"semantic_error": exc.code,
                             "guidance": "Keywords matched nothing and semantic search could not run. "
-                                        "Try literal terms in the document's language; do not infer that files are absent."}
+                                        "Try literal terms in the document's language; do not infer that files are absent."})
         # Register ranked anchors first, then complete short documents. Otherwise
         # a payment table can hide a fee clause several chunks later in the same file.
         excerpts = self.excerpts(result["items"])
@@ -263,7 +291,7 @@ def answer_question(question, depth, *, history=()):
     deep = depth == "deep"
     deadline = time.monotonic() + (100 if deep else 65)
     summaries, documents_by_ref = conversation_context(history)
-    evidence = Evidence(deadline, documents_by_ref)
+    evidence = Evidence(deadline, documents_by_ref, multilingual=bool(re.search(r'[\u3400-\u4dbf\u4e00-\u9fff]', question)))
     instruction = INSTRUCTION + (
         "\nDeep review: check surrounding context and use independent searches across relevant files."
         if deep else "\nAutomatic review: stop when there is sufficient evidence, and search again for complex questions."

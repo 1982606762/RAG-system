@@ -93,12 +93,13 @@ export interface SearchHit {
   chunk: Chunk
 }
 
-export type SearchMode = 'keyword' | 'semantic'
+export type SearchMode = 'multilingual' | 'keyword' | 'semantic'
+export type SearchQueries = Record<'zh' | 'en' | 'da', string[]>
 
 export const searchDocuments = (q: string, offset: number, signal: AbortSignal, mode: SearchMode = 'keyword') =>
-  http.get<{ items: SearchHit[]; has_more: boolean }>('/api/search', {
+  http.get<{ items: SearchHit[]; has_more: boolean; queries?: SearchQueries }>('/api/search', {
     params: { q, offset, limit: 30, mode }, signal,
-    timeout: mode === 'semantic' ? 35000 : 15000,
+    timeout: mode === 'keyword' ? 15000 : mode === 'multilingual' ? 45000 : 35000,
   })
 
 export type AnswerDepth = 'auto' | 'deep'

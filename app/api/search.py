@@ -1,4 +1,4 @@
-"""Owner-only keyword and semantic search over completed document chunks."""
+"""Owner-only multilingual, keyword and semantic search over completed chunks."""
 
 from typing import Literal
 
@@ -8,6 +8,7 @@ from api.deps import require_owner
 from db import documents
 from documents.models import DocumentError
 from embeddings.retrieval import semantic_search
+from search.service import multilingual_search
 
 router = APIRouter(prefix="/api/search", tags=["search"], dependencies=[Depends(require_owner)])
 
@@ -15,7 +16,9 @@ router = APIRouter(prefix="/api/search", tags=["search"], dependencies=[Depends(
 @router.get("")
 def search(q: str = Query(min_length=1, max_length=200),
            limit: int = Query(30, ge=1, le=50), offset: int = Query(0, ge=0, le=10000),
-           mode: Literal["keyword", "semantic"] = "keyword"):
+           mode: Literal["keyword", "semantic", "multilingual"] = "keyword"):
+    if mode == "multilingual":
+        return multilingual_search(q, limit, offset)
     if mode == "keyword":
         return documents.search_chunks(q, limit, offset)
 

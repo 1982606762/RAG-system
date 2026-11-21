@@ -31,6 +31,7 @@ class AnswerTests(unittest.TestCase):
         self.headers = {"Authorization": f"Bearer {token}"}
         self.profile = Profile("answer-test", "global", "gemini-3.1-flash-lite")
         self.enterContext(patch("db.documents.read_short_document_context", return_value=[]))
+        self.enterContext(patch("answers.service.multilingual_search", return_value={"items": [], "has_more": False}))
 
     def ask(self, question="本期实际付了多少？", depth="auto"):
         return self.client.post("/api/ask", json={"question": question, "depth": depth}, headers=self.headers)
@@ -64,7 +65,7 @@ class AnswerTests(unittest.TestCase):
                 patch("answers.service.Gemini") as gemini, \
                 patch("answers.service.semantic_search", return_value={"items": [january], "has_more": False}), \
                 patch("db.documents.read_chunk_context", return_value=[january, neighbor]) as read, \
-                patch("db.documents.search_chunks", return_value={"items": [february], "has_more": False}) as search:
+                patch("answers.service.multilingual_search", side_effect=lambda query, *args, **kwargs: {"items": [february] if query == "二月 已付" else [], "has_more": False}) as search:
             gemini.return_value.__enter__.return_value.generate.side_effect = model_reply
             response = self.ask(depth="deep")
         self.assertEqual(response.status_code, 200, response.text)
@@ -78,7 +79,7 @@ class AnswerTests(unittest.TestCase):
         self.assertEqual(snapshots[1][0][1], first)
         self.assertEqual(snapshots[1][0][2]["parts"][0]["functionResponse"]["id"], SEARCH)
         read.assert_called_once_with(january)
-        search.assert_called_once_with("二月 已付", 5, 0)
+        search.assert_any_call("二月 已付", 5, deadline=unittest.mock.ANY)
 
     def test_semantic_outage_allows_keyword_and_fabricated_citations_cannot_escape(self):
         from documents.models import DocumentError
@@ -90,7 +91,7 @@ class AnswerTests(unittest.TestCase):
         ]
         with patch("answers.service.answer_profile", return_value=self.profile), patch("answers.service.Gemini") as gemini, \
                 patch("answers.service.semantic_search", side_effect=DocumentError("semantic_disabled", "off", 503)), \
-                patch("db.documents.search_chunks", return_value={"items": [hit("model", "AX-410")], "has_more": False}):
+                patch("answers.service.multilingual_search", return_value={"items": [hit("model", "AX-410")], "has_more": False}):
             provider = gemini.return_value.__enter__.return_value
             provider.generate.side_effect = turns
             result = self.ask()
@@ -103,7 +104,7 @@ class AnswerTests(unittest.TestCase):
                  turn(SUBMIT, paragraphs=[{"text": "合同预估每月业主支出为 3485 丹麦克朗。", "source_ids": ["S1"]}],
                       limitations="", notes="  合同预估值不代表实际扣款。  ")]
         with patch("answers.service.answer_profile", return_value=self.profile), patch("answers.service.Gemini") as gemini, \
-                patch("db.documents.search_chunks", return_value={"items": [hit("contract", "Ejerudgifter pr. md. 3.485")], "has_more": False}):
+                patch("answers.service.multilingual_search", return_value={"items": [hit("contract", "Ejerudgifter pr. md. 3.485")], "has_more": False}):
             gemini.return_value.__enter__.return_value.generate.side_effect = turns
             response = self.ask("合同有没有说每个月交多少钱？")
         self.assertEqual(response.status_code, 200, response.text)
@@ -123,7 +124,7 @@ class AnswerTests(unittest.TestCase):
             return turn(SUBMIT, paragraphs=[{"text": "合同月供为 3150 丹麦克朗。", "source_ids": ["S1"]}], limitations="")
 
         with patch("answers.service.answer_profile", return_value=self.profile), patch("answers.service.Gemini") as gemini, \
-                patch("db.documents.search_chunks", return_value={"items": [], "has_more": False}), \
+                patch("answers.service.multilingual_search", return_value={"items": [], "has_more": False}), \
                 patch("answers.service.semantic_search", return_value={"items": [hit("new-loan", "Månedlige ydelser: 3.150,00 kr.")], "has_more": False}) as semantic:
             gemini.return_value.__enter__.return_value.generate.side_effect = reply
             result = self.ask(question)
@@ -150,11 +151,11 @@ class AnswerTests(unittest.TestCase):
             return next(replies)
 
         with patch("answers.service.answer_profile", return_value=self.profile), patch("answers.service.Gemini") as gemini, \
-                patch("db.documents.search_chunks", return_value={"items": [old], "has_more": False}) as keywords, \
+                patch("answers.service.multilingual_search", return_value={"items": [old], "has_more": False}) as keywords, \
                 patch("answers.service.semantic_search", return_value={"items": [new], "has_more": False}) as semantic:
             gemini.return_value.__enter__.return_value.generate.side_effect = reply
             result = answer_question("刚上传了新合同，现在月供多少？", "auto", history=history)
-        keywords.assert_called_once_with("贷款月供", 4, 0, document_id="old-loan")
+        keywords.assert_any_call("贷款月供", 4, deadline=unittest.mock.ANY, document_id="old-loan")
         semantic.assert_called_once_with("贷款月供", 4, deadline=unittest.mock.ANY)
         recovery = snapshots[-1][-1]["parts"][0]["functionResponse"]["response"]
         self.assertIn("review_required", recovery)
@@ -172,7 +173,7 @@ class AnswerTests(unittest.TestCase):
             return turn(SUBMIT, paragraphs=[], limitations="关键词未命中，语义服务暂不可用，尚无法完成核对。")
 
         with patch("answers.service.answer_profile", return_value=self.profile), patch("answers.service.Gemini") as gemini, \
-                patch("db.documents.search_chunks", return_value={"items": [], "has_more": False}), \
+                patch("answers.service.multilingual_search", return_value={"items": [], "has_more": False}), \
                 patch("answers.service.semantic_search", side_effect=DocumentError("embedding_quota", "quota", 503)) as semantic:
             gemini.return_value.__enter__.return_value.generate.side_effect = reply
             result = self.ask()
@@ -214,6 +215,18 @@ class AnswerTests(unittest.TestCase):
         text = '\n'.join(logs.output)
         self.assertIn('route=/api/ask status=503 code=answer_unavailable', text)
         self.assertNotIn('private-test-marker', text)
+
+    def test_chinese_question_automatically_searches_three_languages(self):
+        replies = [turn(SEARCH, query="loan interest", mode="keyword"),
+                   turn(SUBMIT, paragraphs=[{"text": "合成丹麦语资料的说明。", "source_ids": ["S1"]}], limitations="")]
+        with patch('answers.service.answer_profile', return_value=self.profile), \
+                patch('answers.service.Gemini') as gemini, \
+                patch('answers.service.multilingual_search', return_value={'items': [hit('danish-loan', 'Samlede renteomkostninger')], 'has_more': False}) as search:
+            gemini.return_value.__enter__.return_value.generate.side_effect = replies
+            response = self.ask('车贷利息一共多少？')
+        self.assertEqual(response.status_code, 200, response.text)
+        search.assert_called_once_with('loan interest', 4, deadline=unittest.mock.ANY)
+        self.assertEqual(response.json()['citations']['S1']['document_id'], 'danish-loan')
 
     def test_vertex_transport_requests_forced_tools(self):
         session = Mock()

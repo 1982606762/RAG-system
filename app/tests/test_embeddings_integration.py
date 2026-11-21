@@ -120,6 +120,35 @@ class EmbeddingIntegrationTests(unittest.TestCase):
         literal = self.client.get('/api/search', params={'q': query}, headers=self.headers)
         self.assertEqual(literal.json()['items'], [])
 
+    def test_multilingual_search_unions_languages_before_unique_pagination_and_keeps_scope(self):
+        marker = f'Multilingual-{uuid4()}'
+        chinese = self.create([f'{marker} 车贷利息及还款条款。'])
+        english = self.create([f'{marker} Total interest over the loan term.'])
+        danish = self.create([f'{marker} Samlede RENTEOMKOSTNINGER for lånet.'])
+        self.create([f'{marker} Other unrelated maintenance terms.'])
+        failed = self.create([f'{marker} interest'])
+        with store.connect() as conn:
+            conn.execute("UPDATE knowledge_base_v1.documents SET status='failed' WHERE id=%s", (failed,))
+        plan = {'zh': [f'{marker} 利息'], 'en': [f'{marker} interest', f'{marker} total interest'],
+                'da': [f'{marker} renter', f'{marker} renteomkostninger']}
+        params = {'q': f'{marker} 车贷利息', 'mode': 'multilingual', 'limit': 1}
+        found = []
+        with patch('search.service.expand_query', return_value=plan) as expand:
+            for offset in range(3):
+                response = self.client.get('/api/search', params={**params, 'offset': offset}, headers=self.headers)
+                self.assertEqual(response.status_code, 200, response.text)
+                data = response.json()
+                self.assertEqual(data['queries'], plan)
+                self.assertEqual(data['has_more'], offset < 2)
+                result, = data['items']
+                found.append(result['document_id'])
+                self.assertEqual(result['chunk']['sources'][0]['block_index'], 0)
+            from search.service import multilingual_search
+            scoped = multilingual_search(params['q'], 30, document_id=danish)
+            self.assertEqual([row['document_id'] for row in scoped['items']], [danish])
+        self.assertEqual(set(found), {str(chinese), str(english), str(danish)})
+        self.assertEqual(len(found), len(set(found)))
+
     def test_context_reads_only_current_neighbors_in_the_same_document(self):
         identifier = self.create(['前一段', '上下文锚点', '后一段', '更远的段落'])
         self.create(['其他文件'])
