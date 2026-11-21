@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { isAxiosError } from 'axios'
-import { searchDocuments, type SearchHit, type SearchMode, type SearchQueries } from '../api'
+import { searchDocuments, type SearchHit, type SearchMode } from '../api'
 import { useT } from '../i18n'
 import Icon from './Icon'
 
@@ -10,21 +10,15 @@ const semanticErrors = new Map([
   ['semantic_query_invalid', 'semanticQueryInvalid'],
   ['embedding_api_disabled', 'semanticVertexDisabled'],
 ] as const)
-const multilingualErrors = new Map([
-  ['multilingual_disabled', 'multilingualDisabled'],
-  ['multilingual_query_invalid', 'multilingualQueryInvalid'],
-  ['multilingual_timeout', 'multilingualTimeout'],
-] as const)
 
 export default function SearchPanel({ onSelect }: { onSelect: (id: string, block: number | null) => void }) {
   const t = useT()
   const [input, setInput] = useState('')
-  const [mode, setMode] = useState<SearchMode>('multilingual')
+  const [mode, setMode] = useState<SearchMode>('keyword')
   const [submitted, setSubmitted] = useState<{ query: string; mode: SearchMode }>()
   const [items, setItems] = useState<SearchHit[]>([])
   const [offset, setOffset] = useState(0)
   const [hasMore, setHasMore] = useState(false)
-  const [queries, setQueries] = useState<SearchQueries>()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Parameters<typeof t>[0] | null>(null)
   const request = useRef<AbortController | null>(null)
@@ -40,18 +34,15 @@ export default function SearchPanel({ onSelect }: { onSelect: (id: string, block
     setError(null)
     setItems([])
     setHasMore(false)
-    setQueries(undefined)
     try {
       const { data } = await searchDocuments(query, start, controller.signal, mode)
       if (controller.signal.aborted) return
       setItems(data.items)
       setHasMore(data.has_more)
-      setQueries(data.queries)
     } catch (error) {
       if (controller.signal.aborted) return
       const code = isAxiosError(error) ? error.response?.data?.code : undefined
-      setError(mode === 'keyword' ? 'searchError' : mode === 'multilingual'
-        ? multilingualErrors.get(code) ?? 'multilingualError' : semanticErrors.get(code) ?? 'semanticError')
+      setError(mode === 'keyword' ? 'searchError' : semanticErrors.get(code) ?? 'semanticError')
     } finally {
       if (!controller.signal.aborted) setLoading(false)
     }
@@ -62,16 +53,15 @@ export default function SearchPanel({ onSelect }: { onSelect: (id: string, block
       <label className="sr-only" htmlFor="document-search">{t('search')}</label>
       <div className="search-controls">
         <select aria-label={t('searchMode')} value={mode} onChange={event => setMode(event.target.value as SearchMode)}>
-          <option value="multilingual">{t('multilingualSearch')}</option>
           <option value="keyword">{t('keywordSearch')}</option>
           <option value="semantic">{t('semanticSearch')}</option>
         </select>
         <div className="search-input"><Icon name="search" size={20} /><input id="document-search" type="search" value={input} maxLength={200}
-          placeholder={t(mode === 'keyword' ? 'searchHint' : mode === 'multilingual' ? 'multilingualHint' : 'semanticHint')}
+          placeholder={t(mode === 'keyword' ? 'searchHint' : 'semanticHint')}
           onChange={event => setInput(event.target.value)} required /></div>
         <button className="accent-button" disabled={!input.trim()}>{t('searchAction')}</button>
       </div>
-      <small>{t(mode === 'keyword' ? 'searchScope' : mode === 'multilingual' ? 'multilingualScope' : 'semanticScope')}</small>
+      <small>{t(mode === 'keyword' ? 'searchScope' : 'semanticScope')}</small>
     </form>
     {!submitted && <div className="search-welcome empty-state"><span className="empty-icon"><Icon name="search" size={29} /></span><h2>{t('searchWelcome')}</h2><p>{t('searchWelcomeHint')}</p>
       <div className="search-tips"><div><Icon name="search" size={18} /><strong>{t('keywordSearch')}</strong><p>{t('keywordTip')}</p></div><div><Icon name="sparkle" size={18} /><strong>{t('semanticSearch')}</strong><p>{t('semanticTip')}</p></div></div>
@@ -79,12 +69,8 @@ export default function SearchPanel({ onSelect }: { onSelect: (id: string, block
     {loading ? <p className="inline-status" role="status"><span className="spinner" />{t('searching')}</p>
       : error ? <p className="feedback error" role="alert">{t(error)}</p>
       : submitted && <div aria-live="polite">
-        <p>{t(submitted.mode === 'keyword' ? 'searchResults' : submitted.mode === 'multilingual' ? 'multilingualResults' : 'semanticResults')} «{submitted.query}»{items.length ? ` · ${offset + 1}–${offset + items.length}` : ''}</p>
-        {submitted.mode === 'multilingual' && queries && <details className="search-language-plan" open><summary>{t('expandedQueries')}</summary>
-          {(['zh', 'en', 'da'] as const).map(language => <div key={language}><strong>{language === 'zh' ? '中文' : language === 'en' ? 'English' : 'Dansk'}</strong>
-            <span>{queries[language].join(' / ')}</span></div>)}
-        </details>}
-        {items.length === 0 && <p>{t(submitted.mode === 'keyword' ? 'noResults' : submitted.mode === 'multilingual' ? 'noMultilingualResults' : 'noSemanticResults')}</p>}
+        <p>{t(submitted.mode === 'keyword' ? 'searchResults' : 'semanticResults')} «{submitted.query}»{items.length ? ` · ${offset + 1}–${offset + items.length}` : ''}</p>
+        {items.length === 0 && <p>{t(submitted.mode === 'keyword' ? 'noResults' : 'noSemanticResults')}</p>}
         {items.map(hit => <article className="chunk-card" key={`${hit.document_id}-${hit.chunk_index}`}>
           <strong>{hit.filename}</strong>
           {hit.chunk.section.length > 0 && <p className="section-path">{hit.chunk.section.join(' › ')}</p>}

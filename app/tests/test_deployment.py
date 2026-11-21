@@ -68,6 +68,7 @@ class DeploymentPreparationTests(unittest.TestCase):
             self.assertEqual(config['services']['postgres'], {**old['services']['postgres'], 'image': 'pgvector/pgvector:0.8.7-pg16-trixie'})
             app = config['services']['app']
             self.assertEqual(app['environment']['GOOGLE_APPLICATION_CREDENTIALS'], provider['GOOGLE_APPLICATION_CREDENTIALS'])
+            self.assertEqual(app['environment']['MCP_PUBLIC_URL'], 'https://rag.example.test')
             self.assertEqual(app['environment']['OWNER_PASSWORD_HASH'], verifier.replace('$', '$$'))
             self.assertEqual(app['volumes'][-1]['source'], '/srv/private/adc.json')
             self.assertTrue(app['volumes'][-1]['read_only'])

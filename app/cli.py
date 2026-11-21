@@ -7,10 +7,21 @@ from uuid import UUID
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="个人知识库基础工具")
-    parser.add_argument("command", choices=["hash-password", "healthcheck", "init-db", "embed-documents", "check-embeddings"])
+    parser.add_argument("command", choices=["hash-password", "healthcheck", "init-db", "embed-documents", "check-embeddings", "mcp-token"])
+    parser.add_argument("--days", type=int, default=90)
     parser.add_argument("--document-id", type=UUID)
     parser.add_argument("--limit", type=int, default=100)
     args = parser.parse_args()
+
+    if args.command == "mcp-token":
+        from core.config import validate_config
+        from api.security import create_mcp_token
+        validate_config()
+        try:
+            print(create_mcp_token(args.days))
+        except ValueError as exc:
+            parser.error(str(exc))
+        return 0
 
     if args.command == "hash-password":
         from api.security import hash_password

@@ -42,13 +42,31 @@ def create_access_token() -> str:
 
 
 def verify_access_token(token: str) -> None:
+    _verify_token(token, JWT_AUDIENCE)
+
+
+def create_mcp_token(days: int = 90) -> str:
+    """A separate audience keeps an LLM credential out of the writable REST API."""
+    if not 1 <= days <= 365:
+        raise ValueError("MCP token 有效期必须为 1–365 天")
+    now = datetime.now(timezone.utc)
+    return jwt.encode({"sub": "owner", "iss": JWT_ISSUER, "aud": "rag-mcp",
+                       "iat": now, "exp": now + timedelta(days=days)},
+                      JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def verify_mcp_token(token: str) -> None:
+    _verify_token(token, "rag-mcp")
+
+
+def _verify_token(token: str, audience: str) -> None:
     # A valid signature alone must not grant old multi-user tokens owner access.
     payload = jwt.decode(
         token,
         JWT_SECRET,
         algorithms=[JWT_ALGORITHM],
         issuer=JWT_ISSUER,
-        audience=JWT_AUDIENCE,
+        audience=audience,
         options={"require": ["sub", "iss", "aud", "iat", "exp"]},
     )
     if payload["sub"] != "owner":

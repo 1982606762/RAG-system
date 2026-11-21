@@ -120,7 +120,7 @@ class EmbeddingIntegrationTests(unittest.TestCase):
         literal = self.client.get('/api/search', params={'q': query}, headers=self.headers)
         self.assertEqual(literal.json()['items'], [])
 
-    def test_multilingual_search_unions_languages_before_unique_pagination_and_keeps_scope(self):
+    def test_caller_keyword_variants_union_before_unique_pagination_and_keep_scope(self):
         marker = f'Multilingual-{uuid4()}'
         chinese = self.create([f'{marker} 车贷利息及还款条款。'])
         english = self.create([f'{marker} Total interest over the loan term.'])
@@ -131,42 +131,46 @@ class EmbeddingIntegrationTests(unittest.TestCase):
             conn.execute("UPDATE knowledge_base_v1.documents SET status='failed' WHERE id=%s", (failed,))
         plan = {'zh': [f'{marker} 利息'], 'en': [f'{marker} interest', f'{marker} total interest'],
                 'da': [f'{marker} renter', f'{marker} renteomkostninger']}
-        params = {'q': f'{marker} 车贷利息', 'mode': 'multilingual', 'limit': 1}
+        queries = [variant for variants in plan.values() for variant in variants]
         found = []
-        with patch('search.service.expand_query', return_value=plan) as expand:
-            for offset in range(3):
-                response = self.client.get('/api/search', params={**params, 'offset': offset}, headers=self.headers)
-                self.assertEqual(response.status_code, 200, response.text)
-                data = response.json()
-                self.assertEqual(data['queries'], plan)
-                self.assertEqual(data['has_more'], offset < 2)
-                result, = data['items']
-                found.append(result['document_id'])
-                self.assertEqual(result['chunk']['sources'][0]['block_index'], 0)
-            from search.service import multilingual_search
-            scoped = multilingual_search(params['q'], 30, document_id=danish)
-            self.assertEqual([row['document_id'] for row in scoped['items']], [danish])
+        for offset in range(3):
+            response = self.client.post('/api/search/keywords',
+                json={'queries': queries, 'limit': 1, 'offset': offset}, headers=self.headers)
+            self.assertEqual(response.status_code, 200, response.text)
+            data = response.json()
+            self.assertEqual(data['has_more'], offset < 2)
+            result, = data['items']
+            found.append(result['document_id'])
+            self.assertEqual(result['chunk']['sources'][0]['block_index'], 0)
+        response = self.client.post('/api/search/keywords',
+            json={'queries': queries, 'document_id': str(danish)}, headers=self.headers)
+        self.assertEqual([row['document_id'] for row in response.json()['items']], [str(danish)])
         self.assertEqual(set(found), {str(chinese), str(english), str(danish)})
         self.assertEqual(len(found), len(set(found)))
 
-    def test_context_reads_only_current_neighbors_in_the_same_document(self):
+    def test_chunk_windows_preserve_sources_and_pagination_without_other_documents(self):
         identifier = self.create(['前一段', '上下文锚点', '后一段', '更远的段落'])
         self.create(['其他文件'])
-        anchor, = store.search_chunks('上下文锚点', 10, 0)['items']
-        neighbors = store.read_chunk_context(anchor)
-        self.assertEqual([hit['chunk']['text'] for hit in neighbors], ['前一段', '上下文锚点', '后一段'])
-        self.assertEqual({hit['document_id'] for hit in neighbors}, {identifier})
-        complete = store.read_short_document_context(anchor)
-        self.assertEqual([hit['chunk']['text'] for hit in complete], ['前一段', '上下文锚点', '后一段', '更远的段落'])
-        self.assertEqual({hit['document_id'] for hit in complete}, {identifier})
+        first = store.read_document(identifier, 0, 2)
+        self.assertEqual([chunk['text'] for chunk in first['chunks']], ['前一段', '上下文锚点'])
+        self.assertEqual(first['next_chunk'], 2)
+        self.assertTrue(first['has_more'])
+        self.assertEqual([block['index'] for block in first['blocks']], [0, 1])
+        self.assertTrue(all('text' not in block for block in first['blocks']))
+        last = self.client.get(f'/api/documents/{identifier}/chunks',
+            params={'start_chunk': 2, 'limit': 2}, headers=self.headers).json()
+        self.assertEqual([chunk['text'] for chunk in last['chunks']], ['后一段', '更远的段落'])
+        self.assertFalse(last['has_more'])
+        self.assertIsNone(last['next_chunk'])
+        self.assertEqual(store.read_document(identifier, 99)['chunks'], [])
         with store.connect() as conn:
-            conn.execute("""UPDATE knowledge_base_v1.chunks SET data=jsonb_set(data, '{text}', to_jsonb('已改变'::text))
-                WHERE document_id=%s AND chunk_index=1""", (identifier,))
-        self.assertEqual(store.read_chunk_context(anchor), [])
-        self.assertEqual(store.read_short_document_context(anchor), [])
-        large = self.create([f'Large document part {index}' for index in range(9)])
-        large_anchor, = store.search_chunks('Large document part 0', 1, 0, document_id=large)['items']
-        self.assertEqual(store.read_short_document_context(large_anchor), [])
+            conn.execute("UPDATE knowledge_base_v1.documents SET status='failed' WHERE id=%s", (identifier,))
+        with self.assertRaises(DocumentError) as caught:
+            store.read_document(identifier)
+        self.assertEqual(caught.exception.code, 'document_not_ready')
+        with self.assertRaises(DocumentError) as caught:
+            store.read_document(uuid4())
+        self.assertEqual(caught.exception.code, 'not_found')
 
     def test_scoped_semantic_search_only_uses_vectors_from_the_requested_document(self):
         target = self.create(['目标合同'])

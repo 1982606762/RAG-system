@@ -1,4 +1,4 @@
-"""Shared semantic retrieval for search and document answers."""
+"""Semantic retrieval using query embeddings, without answer generation."""
 
 import time
 

@@ -6,14 +6,12 @@ import { useAuth } from '../store'
 import DocumentReader from '../components/DocumentReader'
 import ReaderDrawer from '../components/ReaderDrawer'
 import SearchPanel from '../components/SearchPanel'
-import AskPanel from '../components/AskPanel'
 import LangSwitch from '../components/LangSwitch'
 import Icon, { type IconName } from '../components/Icon'
 import { EmbeddingLabel } from '../components/EmbeddingPanel'
 
-type View = 'ask' | 'library' | 'search'
-const navigation: { view: View; label: 'navAsk' | 'library' | 'navSearch'; icon: IconName }[] = [
-  { view: 'ask', label: 'navAsk', icon: 'chat' },
+type View = 'library' | 'search'
+const navigation: { view: View; label: 'library' | 'navSearch'; icon: IconName }[] = [
   { view: 'library', label: 'library', icon: 'library' },
   { view: 'search', label: 'navSearch', icon: 'search' },
 ]
@@ -21,7 +19,7 @@ const navigation: { view: View; label: 'navAsk' | 'library' | 'navSearch'; icon:
 export default function WorkspacePage() {
   const t = useT()
   const logout = useAuth(state => state.logout)
-  const [view, setView] = useState<View>('ask')
+  const [view, setView] = useState<View>('library')
   const [documents, setDocuments] = useState<DocumentRecord[]>([])
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
@@ -163,16 +161,15 @@ export default function WorkspacePage() {
         </header>
         <div className={`workspace-body view-${view}`}>
           <div className="page-heading">
-            <div><p className="eyebrow">{t(view === 'ask' ? 'askEyebrow' : view === 'library' ? 'libraryEyebrow' : 'searchEyebrow')}</p>
-              <h1>{t(view === 'ask' ? 'askPageTitle' : view === 'library' ? 'library' : 'searchPageTitle')}</h1>
-              <p className="page-description">{t(view === 'ask' ? 'askDescription' : view === 'library' ? 'libraryIntro' : 'searchDescription')}</p></div>
+            <div><p className="eyebrow">{t(view === 'library' ? 'libraryEyebrow' : 'searchEyebrow')}</p>
+              <h1>{t(view === 'library' ? 'library' : 'searchPageTitle')}</h1>
+              <p className="page-description">{t(view === 'library' ? 'libraryIntro' : 'searchDescription')}</p></div>
             <button className="accent-button upload-shortcut" disabled={busy} onClick={() => { setView('library'); input.current?.click() }}><Icon name="plus" size={17} />{t('upload')}</button>
           </div>
           {loadError && <div className="feedback error" role="alert">{t(loadError)}<button onClick={() => void refresh()}>{t('retry')}</button></div>}
           {error && <div className="feedback error" role="alert">{errorKey ? t(errorKey) : error}</div>}
           {busy && view !== 'library' && <div className="feedback" role="status"><span className="spinner" />{progress < 100 ? `${t('uploading')} ${progress}%` : t('processing')}</div>}
           {notice && <div className={`feedback ${notice === 'uploadFailed' ? 'warning' : 'success'}`} role="status"><Icon name={notice === 'uploadFailed' ? 'file' : 'check'} size={17} />{t(notice)}<button className="icon-button" aria-label={t('dismiss')} onClick={() => setNotice(null)}><Icon name="close" size={15} /></button></div>}
-          <div hidden={view !== 'ask'}><AskPanel onSelect={openSource} onBrowse={() => setView('library')} hasDocuments={total > 0 || loading} /></div>
           <div hidden={view !== 'search'}><SearchPanel onSelect={openSource} /></div>
           <div hidden={view !== 'library'}>
             <section className={`upload-panel ${dragging ? 'is-dragging' : ''} ${busy ? 'is-busy' : ''}`} aria-label={t('upload')}

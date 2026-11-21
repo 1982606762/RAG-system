@@ -32,6 +32,11 @@ def detail(document_id: UUID):
     return store.get_detail(document_id)
 
 
+@router.get("/{document_id}/chunks")
+def chunks(document_id: UUID, start_chunk: int = Query(0, ge=0), limit: int = Query(10, ge=1, le=20)):
+    return store.read_document(document_id, start_chunk, limit)
+
+
 @router.post("/{document_id}/retry")
 def retry(document_id: UUID):
     return retry_document(document_id)

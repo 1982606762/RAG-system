@@ -1,14 +1,12 @@
-"""Owner-only multilingual, keyword and semantic search over completed chunks."""
+"""Owner-only retrieval; query planning belongs to the calling LLM."""
 
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 
 from api.deps import require_owner
-from db import documents
-from documents.models import DocumentError
-from embeddings.retrieval import semantic_search
-from search.service import multilingual_search
+from search.service import SearchRequest, search_documents, search_keywords, KeywordRequest
 
 router = APIRouter(prefix="/api/search", tags=["search"], dependencies=[Depends(require_owner)])
 
@@ -16,13 +14,11 @@ router = APIRouter(prefix="/api/search", tags=["search"], dependencies=[Depends(
 @router.get("")
 def search(q: str = Query(min_length=1, max_length=200),
            limit: int = Query(30, ge=1, le=50), offset: int = Query(0, ge=0, le=10000),
-           mode: Literal["keyword", "semantic", "multilingual"] = "keyword"):
-    if mode == "multilingual":
-        return multilingual_search(q, limit, offset)
-    if mode == "keyword":
-        return documents.search_chunks(q, limit, offset)
+           mode: Literal["keyword", "semantic"] = "keyword", document_id: UUID | None = None):
+    return search_documents(SearchRequest(query=q, mode=mode, limit=limit, offset=offset,
+                                          document_id=document_id))
 
-    q = q.strip()
-    if not q or '\x00' in q:
-        raise DocumentError("semantic_query_invalid", "请输入有效的搜索问题。", 422)
-    return semantic_search(q, limit, offset)
+
+@router.post("/keywords")
+def keywords(request: KeywordRequest):
+    return search_keywords(request)

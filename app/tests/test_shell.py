@@ -84,6 +84,7 @@ class ShellTests(unittest.TestCase):
 
     def test_removed_business_and_registration_routes_are_not_exposed(self):
         routes = [
+            ("POST", "/api/ask"), ("GET", "/api/conversations"),
             ("POST", "/api/auth/register"), ("GET", "/api/auth/config"),
             ("POST", "/api/upload"),
             ("POST", "/api/upload_async"), ("GET", "/api/tasks/old-task"),

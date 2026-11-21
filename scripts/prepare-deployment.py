@@ -94,6 +94,7 @@ else:
 # Preserve provider settings and private credential mounts from the server.
 # Resolved Compose values already escape literal dollar signs.
 new['services']['app']['environment'].update(old['services']['app'].get('environment', {}))
+new['services']['app']['environment']['MCP_PUBLIC_URL'] = f'https://{domain}'
 new['services']['app']['networks'] = old['services']['app']['networks']
 for name in ('app', 'frontend'):
     new['services'][name]['image'] = f'rag-mvp-{name}:{revision}'

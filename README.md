@@ -20,19 +20,18 @@
 
 - 已实现 Vertex AI embedding 与 pgvector 入库、独立向量进度、手动继续和旧片段补算。
   配置 Google 项目和调用权限后，新上传会自动尝试生成向量；失败不影响原件阅读和关键词搜索。
-- 搜索页默认使用「中英丹搜索」：Gemini 将搜索词扩展为中文、英文和丹麦语的短关键词组合，在一次 SQL 查询中合并匹配、去重后分页，保留原始片段和来源。无需重新上传或先生成向量；可切回不调用模型的「精确关键词」。只将搜索词发送给 Gemini，不发送搜索结果。查询词扩展最多在进程内缓存 10 分钟，搜索结果每次重新读取；服务不可用会明确提示，不能解释为资料不存在。
-- 中文问答的每次内部搜索也扩展三种语言；语义模式额外合并语义命中，引用仍指向真实原文。
-- 搜索面板可切换到语义搜索，用自己的话查找已完成向量化的资料。搜索问题由 Vertex AI 生成查询向量，pgvector 按余弦距离排序，结果可打开原文。
-- 「向资料提问」让 Gemini 自行调用关键词搜索、语义搜索和片段上下文读取，生成带可点击原文引用的答案。可选「自动」或「深入核对」。
-- 问答会话保存在 PostgreSQL。刷新后可继续当前会话，也可新建、切换或删除会话。追问使用最近三轮的简短上下文，所有引用都来自当前这轮的检索。
+- 搜索页提供精确关键词和语义搜索；语义搜索只调用 embedding 模型生成查询向量。
+- RAG 服务只负责文档存储、解析、分块、向量化、搜索和来源读取。回答生成、对话历史、查询翻译与检索策略由外部 LLM 应用负责。
+- `/api/mcp` 提供标准 Streamable HTTP MCP，使用官方 Python SDK，暴露五个只读工具：`search_documents`、`search_keywords`、`list_documents`、`get_document`、`read_document`。
+- 外部 LLM 可一次提交中文、英文和丹麦语等多组关键词；服务器在 SQL 中 OR 合并、去重后分页，不调用生成式模型翻译。
+- MCP 使用独立的只读 Bearer token；该 token 不能访问上传、重试等 REST 接口。接入方法见 [MCP 使用说明](docs/MCP.md)。
 
-**尚未实现**：cardless 集成和自动重试。
-`ready` 目前表示解析和分块完成，不表示已有检索索引。
-`GET /api/search?q=滤网&limit=30&offset=0` 使用 owner JWT，返回片段和来源。
-关键词搜索直接查询现有片段，无需重传旧资料或新增索引。当前采用扫描匹配，适合个人小规模资料库。
-加上 `mode=multilingual` 可同时按中文、英文和丹麦语关键词搜索；响应的 `queries` 展示各语言使用的检索词。变体之间为 OR，每个变体内的关键词为 AND；在合并去重后统一分页。API 未指定模式时仍保留原来的精确关键词行为。
-加上 `mode=semantic` 可按语义搜索，响应结构和分页参数相同。语义模式使用当前 embedding 配置下已就绪的向量。没有可用索引时返回 `semantic_index_empty`，可在资料详情生成向量，或继续用关键词搜索。
-`POST /api/ask` 接收 `{"question":"滤网多久清洗一次？","depth":"auto"}`，使用 owner JWT，返回带来源 ID 的答案段落、资料缺口和原文位置。该接口用于独立问答。网页通过 `/api/conversations` 保存问答和引用。当前问题、最近的会话摘要和命中的片段会发送到 Vertex AI。
+`ready` 表示解析和分块完成，不表示已完成向量化。
+`GET /api/search?q=滤网&limit=30&offset=0` 返回片段和来源，可加 `document_id` 限定文档。
+`mode=semantic` 只使用当前 embedding 配置下已就绪的向量；没有索引时明确返回 `semantic_index_empty`。
+`POST /api/search/keywords` 接受调用方生成的 `queries`，每组内的词为 AND，组间为 OR。
+`GET /api/documents/{id}/chunks` 分页读取正文片段和来源元数据，适合按需取得上下文。
+原 `/api/ask`、`/api/conversations` 和内置聊天页面已移除；历史会话表和数据保留，不自动迁移或删除。
 财务资料管理属于 cardless，未来只读调用其 API。
 
 ## 启动
@@ -58,6 +57,8 @@ app/
   main.py                    # Route assembly and error responses
   api/documents.py           # Upload, list, detail, download, retry
   api/auth.py                # Single-owner login
+  api/mcp.py                 # Read-only MCP tools and scoped authentication
+  search/service.py          # Retrieval shared by REST and MCP
   api/deps.py                # Shared owner authentication
   documents/models.py        # Parser blocks and chunks
   documents/parsing.py       # Text/PDF parsing and local OCR
@@ -89,6 +90,7 @@ npm run build
 
 没有 `RAG_TEST_PG_DSN` 时跳过数据库集成测试；没有 Tesseract 时跳过原生 OCR 测试。
 完整测试方式、已知限制和本次改动文件见 [docs/MVP.md](docs/MVP.md)。
+当前服务边界与 LLM 接入以 [MCP 使用说明](docs/MCP.md) 为准。
 第一版交付范围、架构、实施顺序和验收场景见 [个人文件 RAG 第一版设计](docs/RAG_V1.md)。
 第一阶段已交付的原件定位、坐标约定与验证记录见 [原文定位](docs/ORIGINAL_LOCATIONS.md)。
 第二阶段的配置、状态、回填和云端验收边界见 [向量入库](docs/EMBEDDINGS.md)。

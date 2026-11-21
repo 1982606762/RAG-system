@@ -56,9 +56,10 @@ def recover_if_idle(conn):
             conn.execute("SELECT pg_advisory_unlock(%s)", (INGEST_LOCK,))
 
 
-def list_documents(limit: int, offset: int):
+def list_documents(limit: int, offset: int, *, recover=True):
     with connect() as conn:
-        recover_if_idle(conn)
+        if recover:
+            recover_if_idle(conn)
         rows = conn.execute("""SELECT * FROM knowledge_base_v1.documents
             ORDER BY created_at DESC, id DESC LIMIT %s OFFSET %s""", (limit, offset)).fetchall()
         total = conn.execute("SELECT count(*) AS total FROM knowledge_base_v1.documents").fetchone()["total"]
@@ -95,7 +96,7 @@ def search_chunk_variants(variants, limit, offset, *, document_id=None):
         not isinstance(query, str) or not 1 <= len(query.strip()) <= 200
         or len(query.split()) > 10 or '\x00' in query for query in variants
     ):
-        raise DocumentError('invalid_query', '多语言检索词无效。', 422)
+        raise DocumentError('invalid_query', '请输入 1–10 组有效关键词，每组最多 200 字、10 个词。', 422)
     variants = list(dict.fromkeys(' '.join(query.split()) for query in variants))
     with connect() as conn:
         rows = conn.execute("""WITH queries AS (
@@ -118,32 +119,6 @@ def search_chunk_variants(variants, limit, offset, *, document_id=None):
     return {'items': rows[:limit], 'has_more': len(rows) > limit}
 
 
-def read_chunk_context(hit):
-    """Return the anchor and its immediate neighbors from the same document version."""
-    with connect() as conn:
-        return conn.execute("""SELECT d.id AS document_id, d.filename, c.chunk_index, c.data AS chunk
-            FROM knowledge_base_v1.chunks anchor
-            JOIN knowledge_base_v1.documents d ON d.id=anchor.document_id
-            JOIN knowledge_base_v1.chunks c ON c.document_id=anchor.document_id
-                AND c.chunk_index BETWEEN anchor.chunk_index - 1 AND anchor.chunk_index + 1
-            WHERE d.status='ready' AND anchor.document_id=%s AND anchor.chunk_index=%s AND anchor.data=%s
-            ORDER BY c.chunk_index""",
-            (hit["document_id"], hit["chunk_index"], Jsonb(hit["chunk"]))).fetchall()
-
-
-def read_short_document_context(hit):
-    """Keep short agreements complete without expanding large files or stale anchors."""
-    with connect() as conn:
-        return conn.execute("""SELECT d.id AS document_id, d.filename, c.chunk_index, c.data AS chunk
-            FROM knowledge_base_v1.chunks anchor
-            JOIN knowledge_base_v1.documents d ON d.id=anchor.document_id
-            JOIN knowledge_base_v1.chunks c ON c.document_id=anchor.document_id
-            WHERE d.status='ready' AND d.chunk_count BETWEEN 1 AND 8
-                AND anchor.document_id=%s AND anchor.chunk_index=%s AND anchor.data=%s
-            ORDER BY c.chunk_index""",
-            (hit["document_id"], hit["chunk_index"], Jsonb(hit["chunk"]))).fetchall()
-
-
 def get_document(conn, document_id):
     row = conn.execute("SELECT * FROM knowledge_base_v1.documents WHERE id=%s", (document_id,)).fetchone()
     if row is None:
@@ -151,6 +126,27 @@ def get_document(conn, document_id):
     from db.embeddings import attach_status
     attach_status(conn, [row])
     return row
+
+
+def read_document(document_id, start_chunk=0, limit=10):
+    """Read a bounded chunk window and its source blocks from one snapshot."""
+    with connect() as conn, conn.transaction():
+        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        document = get_document(conn, document_id)
+        if document['status'] != 'ready':
+            raise DocumentError('document_not_ready', '文档尚未完成解析与分块。', 409)
+        chunks = [row['data'] for row in conn.execute(
+            """SELECT data FROM knowledge_base_v1.chunks WHERE document_id=%s
+               AND chunk_index >= %s ORDER BY chunk_index LIMIT %s""",
+            (document_id, start_chunk, limit + 1))]
+        has_more = len(chunks) > limit
+        chunks = chunks[:limit]
+        indexes = sorted({source['block_index'] for chunk in chunks for source in chunk['sources']})
+        blocks = [row['data'] for row in conn.execute(
+            """SELECT data - 'text' AS data FROM knowledge_base_v1.blocks WHERE document_id=%s
+               AND block_index=ANY(%s::int[]) ORDER BY block_index""", (document_id, indexes))]
+        return {'document': document, 'chunks': chunks, 'blocks': blocks, 'has_more': has_more,
+                'next_chunk': chunks[-1]['index'] + 1 if has_more else None}
 
 
 def invalidate_embeddings(conn, document_id, total=0):

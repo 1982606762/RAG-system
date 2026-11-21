@@ -5,14 +5,14 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from starlette.routing import Route
 import psycopg
 
 from api.auth import router as auth_router
 from api.health import router as health_router
 from api.documents import router as documents_router
 from api.search import router as search_router
-from api.answers import router as answers_router
-from api.conversations import router as conversations_router
+from api.mcp import mcp_lifespan, mcp_app
 from core.config import validate_config
 from documents.models import DocumentError
 
@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     validate_config()
-    yield
+    async with mcp_lifespan():
+        yield
 
 
 app = FastAPI(title="个人知识库", lifespan=lifespan)
@@ -30,8 +31,6 @@ app.include_router(auth_router)
 app.include_router(health_router)
 app.include_router(documents_router)
 app.include_router(search_router)
-app.include_router(answers_router)
-app.include_router(conversations_router)
 
 
 @app.exception_handler(DocumentError)
@@ -56,3 +55,7 @@ async def database_error_handler(request, exc):
 @app.get("/")
 def root():
     return {"service": "rag-api", "status": "ok"}
+
+
+# An exact ASGI route avoids a catch-all mount shadowing REST's 404/405 handling.
+app.router.routes.append(Route('/api/mcp', endpoint=mcp_app, methods=['GET', 'POST', 'DELETE']))

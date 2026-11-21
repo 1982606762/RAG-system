@@ -1,20 +1,42 @@
-"""Search all translated keyword alternatives before deduplicating and paginating."""
+"""Transport-independent retrieval shared by REST and MCP; no answer model."""
 
-import time
+from typing import Annotated, Literal
+from uuid import UUID
+
+from pydantic import BaseModel, Field
 
 from db import documents
 from documents.models import DocumentError
-from search.expansion import expand_query, validate_query
+from embeddings.retrieval import semantic_search
+
+Query = Annotated[str, Field(min_length=1, max_length=200)]
 
 
-def multilingual_search(query, limit, offset=0, *, deadline=float('inf'), document_id=None):
-    query = validate_query(query)
-    queries = expand_query(query, deadline=deadline)
-    # Preserve exact source-language text/identifiers as an additional alternative.
-    variants = [query] if len(query.split()) <= 10 else []
-    variants.extend(variant for group in queries.values() for variant in group)
-    variants = list(dict.fromkeys(variants))
-    if time.monotonic() >= deadline:
-        raise DocumentError('multilingual_timeout', '多语言搜索超时，请重试。', 504)
-    result = documents.search_chunk_variants(variants, limit, offset, document_id=document_id)
-    return {**result, 'queries': queries}
+class SearchRequest(BaseModel):
+    query: Query
+    mode: Literal['keyword', 'semantic'] = 'keyword'
+    limit: int = Field(default=30, ge=1, le=50)
+    offset: int = Field(default=0, ge=0, le=10000)
+    document_id: UUID | None = None
+
+
+class KeywordRequest(BaseModel):
+    queries: list[Query] = Field(min_length=1, max_length=10)
+    limit: int = Field(default=30, ge=1, le=50)
+    offset: int = Field(default=0, ge=0, le=10000)
+    document_id: UUID | None = None
+
+
+def search_documents(request: SearchRequest):
+    query = request.query.strip()
+    if not query or '\x00' in query:
+        raise DocumentError('invalid_query', '请输入有效的搜索内容。', 422)
+    scope = {'document_id': request.document_id} if request.document_id else {}
+    if request.mode == 'semantic':
+        return semantic_search(query, request.limit, request.offset, **scope)
+    return documents.search_chunks(query, request.limit, request.offset, **scope)
+
+
+def search_keywords(request: KeywordRequest):
+    scope = {'document_id': request.document_id} if request.document_id else {}
+    return documents.search_chunk_variants(request.queries, request.limit, request.offset, **scope)

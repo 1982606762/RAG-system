@@ -93,61 +93,13 @@ export interface SearchHit {
   chunk: Chunk
 }
 
-export type SearchMode = 'multilingual' | 'keyword' | 'semantic'
-export type SearchQueries = Record<'zh' | 'en' | 'da', string[]>
+export type SearchMode = 'keyword' | 'semantic'
 
 export const searchDocuments = (q: string, offset: number, signal: AbortSignal, mode: SearchMode = 'keyword') =>
-  http.get<{ items: SearchHit[]; has_more: boolean; queries?: SearchQueries }>('/api/search', {
+  http.get<{ items: SearchHit[]; has_more: boolean }>('/api/search', {
     params: { q, offset, limit: 30, mode }, signal,
-    timeout: mode === 'keyword' ? 15000 : mode === 'multilingual' ? 45000 : 35000,
+    timeout: mode === 'keyword' ? 15000 : 35000,
   })
-
-export type AnswerDepth = 'auto' | 'deep'
-
-export interface DocumentAnswer {
-  paragraphs: { text: string; source_ids: string[] }[]
-  limitations: string
-  notes?: string
-  citations: Record<string, {
-    document_id: string
-    filename: string
-    locations: { block_index: number; page: number | null }[]
-  }>
-}
-
-export interface SavedConversation {
-  id: string
-  title: string
-  updated_at: string
-}
-
-export interface ConversationTurn {
-  id: string
-  question: string
-  depth: AnswerDepth
-  answer: DocumentAnswer
-}
-
-export interface Conversation extends SavedConversation {
-  turns: ConversationTurn[]
-}
-
-export const listConversations = (signal: AbortSignal) =>
-  http.get<{ items: SavedConversation[] }>('/api/conversations', { signal })
-
-export const getConversation = (id: string, signal: AbortSignal) =>
-  http.get<Conversation>(`/api/conversations/${id}`, { signal })
-
-export const deleteConversation = (id: string, signal: AbortSignal) =>
-  http.delete(`/api/conversations/${id}`, { signal })
-
-export const saveConversationTurn = (
-  id: string | null, question: string, depth: AnswerDepth, request_id: string,
-  after_turn_id: string | undefined, signal: AbortSignal,
-) => http.post<{ conversation: SavedConversation; turn: ConversationTurn }>(
-  id ? `/api/conversations/${id}/turns` : '/api/conversations',
-  { question, depth, request_id, after_turn_id }, { signal, timeout: 125000 },
-)
 
 export const listDocuments = (offset = 0) => http.get<{ items: DocumentRecord[]; total: number }>(
   '/api/documents', { params: { limit: 30, offset } },

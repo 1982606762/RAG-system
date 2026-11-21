@@ -1,1 +1,1 @@
-"""Multilingual retrieval shared by document search and answers."""
+"""Document retrieval shared by REST and MCP."""

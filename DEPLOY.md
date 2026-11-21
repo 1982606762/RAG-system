@@ -20,7 +20,7 @@ docker compose -f deploy/proxy/compose.yml exec caddy caddy validate --config /e
 docker compose -f deploy/proxy/compose.yml exec caddy caddy reload --config /etc/caddy/Caddyfile
 ```
 
-当前提供登录、文档上传、解析、分块、关键词搜索和原件定位。不包含语义搜索或 AI 问答。
+当前提供登录、文档上传、解析、分块、关键词/语义搜索、原件定位与只读 MCP；问答由外部 LLM 应用负责。
 Docker Compose 的前端与 API 共用 `http://localhost:8001`，生产 OCR 依赖已安装在后端镜像内。
 
 ## 新安装
@@ -79,17 +79,15 @@ docker compose stop celery_worker redis chroma
 | 接口 | 用途 |
 | --- | --- |
 | `POST /api/auth/login` | 单密码换取 JWT |
-| `POST /api/ask` | 不保存的单次文档问答 |
-| `GET /api/conversations` | 列出已保存会话 |
-| `POST /api/conversations` | 用首问和 `request_id` 创建会话 |
-| `GET /api/conversations/{id}` | 读取会话及问答引用 |
-| `POST /api/conversations/{id}/turns` | 用 `request_id` 和 `after_turn_id` 提交追问 |
-| `DELETE /api/conversations/{id}` | 删除会话及问答记录 |
 | `GET /api/auth/me` | 校验主人会话 |
 | `GET /api/health` | 数据库连通性，无认证 |
 | `GET /api/documents?limit=30&offset=0` | 分页列表，最大每页 100 条 |
 | `POST /api/documents` | multipart 的 `file` 字段；等待本次解析和分块完成 |
 | `GET /api/documents/{id}` | 文档信息、内容块、片段及来源 |
+| `GET /api/documents/{id}/chunks?start_chunk=0&limit=10` | 分页读取片段和来源元数据，单页最多 20 片段 |
+| `GET /api/search?q=...&mode=keyword` | 关键词或语义搜索，可用 `document_id` 限定文档 |
+| `POST /api/search/keywords` | 调用方提供多组关键词，合并去重后分页 |
+| `POST /api/mcp` | 只读 MCP；使用专用 token，见 [接入说明](docs/MCP.md) |
 | `GET /api/documents/{id}/original` | 带认证的原件下载 |
 | `POST /api/documents/{id}/retry` | 手动重试失败文件 |
 | `POST /api/documents/{id}/embeddings` | 为现有片段生成/继续向量，无需重解析 |
@@ -103,7 +101,7 @@ docker compose stop celery_worker redis chroma
 页面请求超时或关闭不代表后端已经停止处理；重新打开列表并刷新状态。
 在没有活跃入库锁时，读取列表/详情或开始新处理会将中断的 `processing` 标记为失败，等待手动重试。
 
-旧 `/api/upload`、注册、任务、模型选择与追踪接口不再使用。
+旧 `/api/ask`、`/api/conversations`、`/api/upload`、注册、任务、模型选择与追踪接口不再使用。历史会话数据保留。
 修改密码不会撤销已签发 token；需要全员重新登录时轮换 `JWT_SECRET`。
 
 ## 本地开发

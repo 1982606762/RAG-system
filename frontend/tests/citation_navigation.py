@@ -1,4 +1,4 @@
-"""Exercise real viewport navigation with synthetic saved answers and a legacy PDF.
+"""Exercise real viewport navigation with synthetic search results and a legacy PDF.
 
 All API requests are intercepted; no database, cloud model or private documents
 are used. Requires a running frontend, Playwright and installed Chromium.
@@ -23,29 +23,19 @@ document = {
                for index in range(2)],
     "chunks": [],
 }
-citations = {f"S{index + 1}": {
-    "document_id": document["id"], "filename": document["filename"],
-    "locations": [{"block_index": index, "page": index + 2}],
-} for index in range(2)}
-answer = {
-    "paragraphs": [{"text": "合同列有每月费用预估。", "source_ids": ["S1", "S2"]}],
-    "notes": "预估值不等于实际付款。", "limitations": "", "citations": citations,
-}
-conversation = {
-    "id": "citation-conversation", "title": "合同费用", "updated_at": "",
-    "turns": [{"id": f"turn-{index}", "question": f"合同费用问题 {index + 1}",
-               "depth": "auto", "answer": answer} for index in range(8)],
-}
+chunk = {"index": 0, "kind": "text", "text": "Synthetic contract excerpt", "section": [],
+         "sources": [{"block_index": index, "page": index + 2, "start": 0, "end": 26}
+                     for index in range(2)]}
+document["chunks"] = [chunk]
 
 
 def api(route):
     path = urlparse(route.request.url).path
     if path == "/api/auth/me":
         route.fulfill(json={"role": "owner"})
-    elif path == "/api/conversations":
-        route.fulfill(json={"items": [{key: conversation[key] for key in ("id", "title", "updated_at")}]})
-    elif path == f"/api/conversations/{conversation['id']}":
-        route.fulfill(json=conversation)
+    elif path == "/api/search":
+        route.fulfill(json={"items": [{"document_id": document["id"], "filename": document["filename"],
+                                       "chunk_index": 0, "chunk": chunk}], "has_more": False})
     elif path == "/api/documents":
         route.fulfill(json={"items": [document], "total": 1})
     elif path == f"/api/documents/{document['id']}":
@@ -72,16 +62,15 @@ with sync_playwright() as playwright:
         page.route("**/api/**", api)
         page.add_init_script("""
             localStorage.setItem('rag.owner.token', 'synthetic-owner-token');
-            localStorage.setItem('rag-selected-conversation', 'citation-conversation');
             localStorage.setItem('lang', 'zh');
         """)
         page.goto(base_url)
-        expect(page.get_by_role("heading", name="合同费用问题 8")).to_be_visible()
-        expect(page.get_by_role("heading", name="资料缺口", exact=True)).to_have_count(0)
-        expect(page.get_by_role("heading", name="说明", exact=True)).to_have_count(8)
-        source = page.locator(".ask-answer").first.locator(".source-links button")
-        # Open, return to the long answer, click the identical source, then another
-        # page in the same file. No bbox/Region exists to scroll on our behalf.
+        page.get_by_role("navigation").get_by_role("button", name="搜索", exact=True).click()
+        page.get_by_role("searchbox").fill("contract")
+        page.locator(".search-panel").get_by_role("button", name="搜索", exact=True).click()
+        source = page.locator(".search-panel .source-links button")
+        expect(source).to_have_count(2)
+        # Reopen the same source, then another page in the same file, without bbox.
         for step, (index, source_page) in enumerate([(0, 2), (0, 2), (1, 3)]):
             source.nth(index).click()
             expect(page.locator(".reader h2")).to_be_in_viewport()
@@ -98,4 +87,4 @@ with sync_playwright() as playwright:
         assert not errors, errors
         page.close()
     browser.close()
-print("Citation browser checks passed: repeated same-file sources, PDF pages without bbox, focus, notes, desktop/mobile.")
+print("Citation browser checks passed: repeated same-file sources, PDF pages without bbox, focus, desktop/mobile.")
